@@ -1,0 +1,66 @@
+name: test
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  pre-commit-hooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: pip install --group linters
+      - name: Run pre-commit hooks
+        run: pre-commit run --hook-stage merge-commit --all-files
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version:
+          - '3.12'
+          - '3.13'
+          - '3.14'
+    env:
+      DOCKER_COMPOSE_PROJECT_PATH: tests/integration
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install --group dev -e ".[asyncmy,cron,dishka,opentelemetry,psycopg,sqlalchemy]"
+
+      - name: Run unit tests
+        run: pytest -m "unit"
+
+      - name: Init postgres tests deps
+        run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" up --quiet-pull -d postgres --wait
+      - name: Run postgres integration tests
+        run: | 
+          export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
+          pytest -m "postgres" --postgres-url "postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME"
+      - name: Destroy postgres tests deps
+        if: always()
+        run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
+
+      - name: Init mysql tests deps
+        run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" up --quiet-pull -d mariadb --wait
+      - name: Run mysql integration tests
+        run: | 
+          export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
+          pytest -m "mysql" --mysql-url "mysql://$DB_USER:$DB_PASSWORD@localhost:3306/$DB_NAME"
+      - name: Destroy mysql tests deps
+        if: always()
+        run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
