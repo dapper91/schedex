@@ -1,66 +1,7 @@
-# schedex
-
-Distributed persistent extendable job scheduling library
-
-## Installation
-
-```commandline
-pip3 install schedex
-```
-
-**Optional dependencies**:
-
-- **cron**: crontab based schedules
-- **sqlalchemy**: [sqlalchemy](https://www.sqlalchemy.org/) backed scheduler
-- **psycopg**: [psycopg](https://www.psycopg.org/psycopg3/docs/) backed scheduler and event broker (through LISTEN/NOTIFY mechanism)
-- **asyncmy**: mysql([asyncmy](https://github.com/long2ice/asyncmy)) backed scheduler
-- **pymongo**: mongodb([pymongo](https://pymongo.readthedocs.io/en/stable/index.html)) backed scheduler
-- **opentelemetry**: telemetry compatible with [opentelemetry](https://opentelemetry.io/) standard
-- **dishka**: dependency injection with [dishka](https://dishka.readthedocs.io/) library
-
-## Overview
-
-`Schedex` is a modern strictly-typed distributed persistent backend agnostic job scheduling library.
-
-### Features
-
-- **Database agnostic** nature allows to use it with any relation database (PostgreSQL, MySql, MsSql, MariaDB, Percona etc.)
-or NoSql one (MongoDB, Redis, etc.) which let you pick up the best solution suitable for your requirements.
-
-- The library is aimed to real-world projects so that it supports essential features required in production like
-**transactional updates** - may be necessary if your application logic requires scheduling multiple jobs or 
-cancel one job and schedule another or modify your domain data and schedule a job atomically.
-
-- For data serialization `schedex` uses [msgspec](https://msgspec.dev/) library which make it **serialization format agnostic** (JSON, MsgPack etc.) 
-
-- **Strongly typed** codebase helps typecheckers like mypy or pyright to validate your code for type correctness 
-and fix more bugs on development stage.
-
-- The library supports **locking mechanism customization** so that you can choose the one that is more suitable 
-in your environment. It supports select-for-update locks (with relational databases), leasing locks; but you can
-implement your own one if it is necessary.
-
-### Why yet another scheduler?
-
-There are some libraries that occupy the same niche. But they have some disadvantages 
-which motivated to write `schedex` instead.
-
-#### [procrastinate](https://procrastinate.readthedocs.io)
-    
-Mature and well tested library with great documentation and support. But it is tied to PostgreSQL which 
-doesn't allow to use it with different databases. No transaction support make it useless when the business 
-logic requires strong consistency.
-
-#### [apscheduler](https://apscheduler.readthedocs.io)
-
-Mature and well tested database agnostic library, but has some disadvantages: it is not strictly typed which
-leads to many bugs in runtime; only one locking mechanism supported (leasing locks), transactional modifications
-are not supported which makes it problematic to use the library in strong consistency required applications.
-
-## Quickstart
-
-```python
+import argparse
+import asyncio as aio
 import datetime as dt
+import logging
 from typing import Any, MutableMapping
 
 import psycopg_pool as ppg_pool
@@ -147,4 +88,16 @@ async def start_executor() -> None:
 
         await executor.run()
 
-```
+
+logging.basicConfig(level=logging.INFO)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("action", choices=["scheduler", "executor"])
+args = parser.parse_args()
+
+if args.action == "scheduler":
+    aio.run(start_scheduler())
+elif args.action == "executor":
+    aio.run(start_executor())
+else:
+    raise AssertionError("unreachable")

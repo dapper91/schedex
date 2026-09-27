@@ -1,0 +1,69 @@
+[project]
+name = "schedex"
+description = "Distributed persistent extendable job scheduling library"
+version = "0.1.0"
+readme = "README.md"
+license = "Unlicense"
+authors = [
+    {name = "Dmitry Pershin", email = "dapper1291@gmail.com"}
+]
+keywords = ["schedex", "async", "scheduler", "persistent", "distributed"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "msgspec>=0.21.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/dapper91/schedex"
+Repository = "https://github.com/dapper91/schedex"
+Documentation = "https://github.com/dapper91/schedex"
+
+
+[project.optional-dependencies]
+cron = [
+    "crontools>=0.1.6",
+]
+sqlalchemy = [
+    "sqlalchemy[asyncio]>=2.0.52",
+]
+psycopg = [
+    "psycopg[pool]>=3.3.4",
+]
+asyncmy = [
+    "asyncmy>=0.2.14",
+]
+dishka = [
+    "dishka>=1.10.1",
+]
+opentelemetry = [
+    "opentelemetry-api>=1.44.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "polyfactory>=3.3.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest>=9.1.1",
+    "sqlalchemy-utils>=0.42.1",
+    "time-machine>=3.5.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-lazy-fixtures>=1.4.1",
+]
+linters = [
+    "pre-commit>=4.6.2",
+]

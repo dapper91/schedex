@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:17.9-alpine
+    environment:
+      POSTGRES_DB: "${DB_NAME}"
+      POSTGRES_USER: "${DB_USER}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    command:
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c log_min_messages=ERROR
+      -c autovacuum=off
+    tmpfs:
+      /var/lib/postgresql/data:rw
+    ports:
+      - 5432:5432
+    logging:
+      driver: none
+    healthcheck:
+      test: pg_isready -U "${DB_USER}" -d "${DB_NAME}"
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
+
+  mariadb:
+    image: mariadb:10.6
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      MARIADB_DATABASE: "${DB_NAME}"
+      MARIADB_USER: "${DB_USER}"
+      MARIADB_PASSWORD: "${DB_PASSWORD}"
+    command:
+      --innodb_flush_method=O_DIRECT_NO_FSYNC
+      --innodb_flush_log_at_trx_comm=2
+      --performance_schema=OFF
+    tmpfs:
+      /var/lib/mysql:rw
+    ports:
+      - 3306:3306
+    logging:
+      driver: none
+    healthcheck:
+      test: healthcheck.sh --connect --innodb_initialized
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 5s

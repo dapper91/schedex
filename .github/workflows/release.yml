@@ -1,0 +1,32 @@
+name: release
+
+on:
+  workflow_run:
+    workflows:
+      - test
+    branches:
+      - master
+    types:
+      - completed
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: codfish/semantic-release-action@v4
+        with:
+          additional-packages: |
+            [
+              '@covage/semantic-release-pyproject-plugin',
+              '@semantic-release/changelog',
+              '@semantic-release/git',
+              '@semantic-release/github'
+            ]
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
