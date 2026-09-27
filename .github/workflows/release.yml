@@ -19,14 +19,17 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v6
-      - uses: codfish/semantic-release-action@v4
+      - uses: python-semantic-release/python-semantic-release@v10.7.0
+        id: release
+        name: Semantic Version Release
         with:
-          additional-packages: |
-            [
-              '@covage/semantic-release-pyproject-plugin',
-              '@semantic-release/changelog',
-              '@semantic-release/git',
-              '@semantic-release/github'
-            ]
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          config_file: releaserc.toml
+          github_token: ${{ secrets.RELEASE_BOT_TOKEN }}
+
+      - uses: python-semantic-release/publish-action@v10.7.0
+        name: Publish GitHub Release
+        if: steps.release.outputs.released == 'true'
+        with:
+          config_file: releaserc.toml
+          github_token: ${{ secrets.RELEASE_BOT_TOKEN }}
+          tag: ${{ steps.release.outputs.tag }}
