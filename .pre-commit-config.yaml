@@ -27,5 +27,5 @@ repos:
     rev: v2.3.1
     hooks:
       - id: mypy
-        entry: bash -c "pip3 install --group dev -e '.[cron,dishka,opentelemetry,psycopg,sqlalchemy]' && mypy --package schedex"
+        entry: bash -c "pip3 install --group dev -e '.[cron,dishka,opentelemetry,psycopg,sqlalchemy,pymongo]' && mypy --package schedex"
         pass_filenames: false

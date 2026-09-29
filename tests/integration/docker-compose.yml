@@ -47,3 +47,40 @@ services:
       timeout: 2s
       retries: 5
       start_period: 5s
+
+  mongodb:
+    image: mongo:8.3-noble
+    environment:
+      MONGO_INITDB_DATABASE: "${DB_NAME}"
+      MONGO_INITDB_ROOT_USERNAME: "${DB_USER}"
+      MONGO_INITDB_ROOT_PASSWORD: "${DB_PASSWORD}"
+    entrypoint:
+      - bash
+      - -e
+      - -c
+      - |
+        openssl rand -base64 756 > /data/replica.key
+        chmod 400 /data/replica.key
+        chown mongodb /data/replica.key
+        exec docker-entrypoint.sh $@
+    command:
+      --quiet
+      --replSet=rs0
+      --bind_ip_all
+      --keyFile=/data/replica.key
+    tmpfs:
+      - /data/db:rw
+    ports:
+      - 27017:27017
+    healthcheck:
+      test: >
+        mongosh 
+        --quiet 
+        --username "${DB_USER}" 
+        --password "${DB_PASSWORD}" 
+        --authenticationDatabase admin 
+        --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})'
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
