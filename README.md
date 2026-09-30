@@ -1,3 +1,18 @@
+[![Downloads][download-badge]][download-url]
+[![License][licence-badge]][licence-url]
+[![Python Versions][python-version-badge]][python-version-url]
+[![Build status][build-badge]][build-url]
+
+[download-badge]: https://static.pepy.tech/personalized-badge/schedex?period=month&units=international_system&left_color=grey&right_color=orange&left_text=Downloads/month
+[download-url]: https://pepy.tech/project/schedex
+[licence-badge]: https://img.shields.io/badge/license-Unlicense-blue.svg
+[licence-url]: https://github.com/dapper91/schedex/blob/master/LICENSE
+[python-version-badge]: https://img.shields.io/pypi/pyversions/schedex.svg
+[python-version-url]: https://pypi.org/project/schedex
+[build-badge]: https://github.com/dapper91/schedex/actions/workflows/test.yml/badge.svg?branch=master
+[build-url]: https://github.com/dapper91/schedex/actions/workflows/test.yml
+
+
 # schedex
 
 Distributed persistent extendable job scheduling library

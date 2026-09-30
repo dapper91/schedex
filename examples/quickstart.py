@@ -24,13 +24,12 @@ async def print_message(context: Context, message: str, /, *, end: str = "\n") -
 
 
 async def start_scheduler() -> None:
-    db_url = "postgresql+psycopg://user:password@localhost:5432/myapp"
-    db_engine = aiosa.create_async_engine(db_url)
+    db_engine = aiosa.create_async_engine("postgresql+psycopg://user:password@localhost:5432/myapp")
 
     async with db_engine.begin() as conn:
         await conn.run_sync(sxsa.BaseModel.metadata.create_all)
 
-    async with ppg_pool.AsyncConnectionPool(db_url) as pg_pool:
+    async with ppg_pool.AsyncConnectionPool("postgresql://user:password@localhost:5432/myapp") as pg_pool:
         event_sender = sxpg.PsycopgEventSender(pg_pool)
 
         async with sxsa.SqlAlchemyTransactionalScheduler(
@@ -68,14 +67,13 @@ async def start_scheduler() -> None:
 
 
 async def start_executor() -> None:
-    db_url = "postgresql+psycopg://user:password@localhost:5432/myapp"
-    db_engine = aiosa.create_async_engine(db_url)
+    db_engine = aiosa.create_async_engine("postgresql+psycopg://user:password@localhost:5432/myapp")
     async with db_engine.begin() as conn:
         await conn.run_sync(sxsa.BaseModel.metadata.create_all)
 
     app_state: AppState = {}
 
-    async with ppg_pool.AsyncConnectionPool(db_url) as pg_pool:
+    async with ppg_pool.AsyncConnectionPool("postgresql://user:password@localhost:5432/myapp") as pg_pool:
         executor = sx.WorkerPoolExecutor(
             max_workers=3,
             state=app_state,

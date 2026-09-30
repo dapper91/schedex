@@ -11,7 +11,7 @@ from schedex.eventbus import Event, EventKind, EventReceiver, EventSender
 from schedex.guard import ErrorGuard, RetryPolicy, exponential_delay
 from schedex.lock import JobLock, LockManager, TaskLock
 from schedex.metadata import metadata_decoder
-from schedex.runtime import first, second, select
+from schedex.runtime import first, second, select, third
 from schedex.schedule import Schedule
 from schedex.task import Task, TaskRegistry
 
@@ -184,6 +184,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
         retry_policy: Optional[RetryPolicy] = None,
     ) -> None:
         self._state = state
+        self._polling_interval = polling_interval
         self._retry_policy = retry_policy or exponential_delay(
             initial=dt.timedelta(seconds=1),
             maximum=dt.timedelta(seconds=30),
@@ -234,16 +235,24 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
                     worker = await worker_pool.acquire()
                     try:
                         with ticket:
-                            task_source = aiter(task_fetcher)
+                            task_lock, delay = await task_fetcher.fetch_next_task()
+                            if task_lock is not None:
+                                logger.debug("task '%s' locked", task_lock.task.id)
+                                worker.submit(self._execute_task(task_lock))
+                            else:
+                                match await select(
+                                    task_status_changed.wait(),
+                                    aio.sleep(delay.total_seconds()),
+                                    aio.sleep(self._polling_interval.total_seconds()),
+                                ):
+                                    case first(_):
+                                        task_status_changed.clear()
+                                    case second(_):
+                                        logger.debug("check delay deadline reached")
+                                    case third(_):
+                                        logger.debug("polling deadline reached")
 
-                            match await select(anext(task_source), task_status_changed.wait()):
-                                case first(task_lock):
-                                    logger.debug("task '%s' locked", task_lock.task.id)
-                                    worker.submit(self._execute_task(task_lock))
-                                case second(_):
-                                    task_status_changed.clear()
-                                    worker.release()
-                                    continue
+                                worker.release()
 
                     except BaseException:
                         worker.release()
@@ -257,7 +266,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
                 with ticket:
                     async with event_receiver.connect() as event_source:
                         async for event in event_source:
-                            logger.debug("event '%s' received", event)
+                            logger.debug("processing event %s", event)
                             if event.kind in (
                                 EventKind.NodeLeft,  # node may update a task state on shutdown
                                 EventKind.JobReady,  # job may spawn a new task
