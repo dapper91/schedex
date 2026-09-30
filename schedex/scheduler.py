@@ -16,7 +16,22 @@ logger = logging.getLogger(__name__)
 
 
 @dc.dataclass
-class Job[SchT: Schedule]:
+class JobData[SchT: Schedule]:
+    """
+    Scheduler job data.
+
+    :param id: job identifier
+    :param schedule: job schedule
+    :param meta: job metadata
+    """
+
+    schedule: SchT
+    meta: Metadata = dc.field(default_factory=dict, kw_only=True)
+    id: str = dc.field(default_factory=lambda: str(uuid.uuid4()), kw_only=True)
+
+
+@dc.dataclass
+class Job[SchT: Schedule](JobData[SchT]):
     """
     Scheduler job.
 
@@ -26,10 +41,7 @@ class Job[SchT: Schedule]:
     :param meta: job metadata
     """
 
-    schedule: SchT
     task: BoundTask
-    meta: Metadata = dc.field(default_factory=dict)
-    id: str = dc.field(default_factory=lambda: str(uuid.uuid4()))
 
 
 class SchedulerMiddlewareWrappedFunc[SchT: Schedule](Protocol):
@@ -131,7 +143,7 @@ class Scheduler[SchT: Schedule]:
 
         return cancelled
 
-    async def get_job(self, job_id: str) -> Optional[Job[SchT]]:
+    async def get_job(self, job_id: str) -> Optional[JobData[SchT]]:
         """
         Returns a job by identifier.
 
@@ -139,10 +151,9 @@ class Scheduler[SchT: Schedule]:
         """
 
         if (stored_job := await self._job_manager.get_job(job_id)) is not None:
-            return Job(
+            return JobData(
                 id=stored_job.id,
                 schedule=self._schedule_type.deserialize(stored_job.schedule),
-                task=BoundTask.deserialize(stored_job.task_args),
                 meta=metadata_decoder.decode(stored_job.meta),
             )
 
