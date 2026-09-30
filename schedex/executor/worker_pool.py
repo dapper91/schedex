@@ -257,7 +257,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
                 with ticket:
                     async with event_receiver.connect() as event_source:
                         async for event in event_source:
-                            logger.debug("event '%s' received", event)
+                            logger.debug("processing event %s", event)
                             if event.kind in (
                                 EventKind.NodeLeft,  # node may update a task state on shutdown
                                 EventKind.JobReady,  # job may spawn a new task

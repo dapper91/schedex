@@ -1,5 +1,6 @@
 import asyncio as aio
 import datetime as dt
+import logging
 import uuid
 from types import TracebackType
 from typing import Any, Optional, Self, cast
@@ -11,6 +12,8 @@ import sqlalchemy.orm
 import schedex as sx
 
 from . import tables
+
+logger = logging.getLogger(__name__)
 
 
 class LockFailedError(Exception):
@@ -30,6 +33,8 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         event_sender: Optional[sx.EventSender] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
+        logger.debug("locking a job...")
+
         session = session_maker()
         try:
             await session.begin()
@@ -47,11 +52,14 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
             )
             if job is not None:
                 if (delay := job.run_at - dt.datetime.now(tz=dt.timezone.utc)) <= dt.timedelta(0):
+                    logger.debug("job %s locked", job.id)
                     return cls(session, job, event_sender), dt.timedelta(0)
                 else:
+                    logger.debug("no upcoming jobs found")
                     await session.close()
                     return None, delay
             else:
+                logger.debug("job timeline is empty")
                 await session.close()
                 return None, dt.timedelta.max
 
@@ -97,6 +105,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         return False
 
     async def release(self, rollback: bool = False) -> None:
+        self._session.expunge(self._job)
         try:
             if rollback:
                 await self._session.rollback()
@@ -107,6 +116,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
             await self._session.close()
 
         await self._flush_events()
+        logger.debug("job %s released", self._job.id)
 
     async def release_with_error(self) -> None:
         await self._session.execute(
@@ -116,11 +126,14 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
 
         await self.release()
 
+        logger.debug("job %s released with error", self._job.id)
+
     async def remove(self) -> None:
         await self._session.execute(sa.delete(tables.Job).where(tables.Job.id == self._job.id))
         self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
         await self.release()
+        logger.debug("job %s removed", self._job.id)
 
     async def complete(self) -> None:
         await self._session.execute(
@@ -129,8 +142,11 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
         await self.release()
+        logger.debug("job %s completed", self._job.id)
 
     async def create_task(self, next_run_at: Optional[dt.datetime] = None) -> None:
+        logger.debug("job %s spawning a task...", self._job.id)
+
         if next_run_at is None:
             await self._session.execute(
                 sa.update(tables.Job).values(status=sx.JobStatus.Completed).where(tables.Job.id == self._job.id)
@@ -144,9 +160,10 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
             )
             self._emit_event(sx.Event(sx.EventKind.JobReady))
 
+        task_id = uuid.uuid4().hex
         self._session.add(
             tables.Task(
-                id=uuid.uuid4().hex,
+                id=task_id,
                 created_at=dt.datetime.now(tz=dt.timezone.utc),
                 status=sx.TaskStatus.Pending,
                 job_id=self._job.id,
@@ -158,6 +175,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
             )
         )
         self._emit_event(sx.Event(sx.EventKind.TaskReady))
+        logger.debug("job %s spawned a task %s", self._job.id, task_id)
 
 
 class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
@@ -171,6 +189,8 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         event_sender: Optional[sx.EventSender] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
+        logger.debug("locking a task...")
+
         session = session_maker()
         try:
             await session.begin()
@@ -188,11 +208,14 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
             )
             if task is not None:
                 if (delay := task.run_at - dt.datetime.now(tz=dt.timezone.utc)) <= dt.timedelta(0):
+                    logger.debug("task %s locked", task.id)
                     return cls(session, task, event_sender), dt.timedelta(0)
                 else:
+                    logger.debug("no upcoming tasks found")
                     await session.close()
                     return None, delay
             else:
+                logger.debug("task timeline is empty")
                 await session.close()
                 return None, dt.timedelta.max
 
@@ -239,6 +262,8 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         return False
 
     async def release(self, rollback: bool = False) -> None:
+        self._session.expunge(self._task)
+
         try:
             if rollback:
                 await self._session.rollback()
@@ -249,6 +274,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
             await self._session.close()
 
         await self._flush_events()
+        logger.debug("task %s released", self._task.id)
 
     async def release_with_error(self) -> None:
         await self._session.execute(
@@ -259,6 +285,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         self._emit_event(sx.Event(sx.EventKind.TaskFailed))
 
         await self.release()
+        logger.debug("task %s released with error", self._task.id)
 
     async def succeed(self) -> None:
         await self._session.execute(
@@ -267,12 +294,14 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
 
         await self.release()
+        logger.debug("task %s released as succeeded", self._task.id)
 
     async def remove(self) -> None:
         await self._session.execute(sa.delete(tables.Task).where(tables.Task.id == self._task.id))
         self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
 
         await self.release()
+        logger.debug("task %s removed", self._task.id)
 
 
 class SqlAlchemySfuLockManager(sx.LockManager[SqlAlchemySfuJobLock, SqlAlchemySfuTaskLock]):
@@ -309,6 +338,8 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
         :return: task lock or `None` if there is no task to lock.
         """
+
+        logger.debug("locking a job...")
 
         async with session_maker() as session:
             async with session.begin():
@@ -372,14 +403,18 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         )
                         if result.rowcount:
                             session.expunge(job)
-                            return cls(session_maker, job, period, identifier, event_sender), dt.timedelta(0)
+                            logger.debug("job %s locked", job.id)
+                            lock = cls(session_maker, job, period, identifier, event_sender)
+                            return lock, dt.timedelta(0)
                         else:
-                            # job has been reacquired by another worker
+                            logger.debug("job acquired by another worker")
                             return None, dt.timedelta(0)
                     else:
+                        logger.debug("no upcoming jobs found")
                         return None, delay
 
                 else:
+                    logger.debug("job timeline is empty")
                     return None, dt.timedelta.max
 
     def __init__(
@@ -455,6 +490,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                 self._emit_event(sx.Event(sx.EventKind.JobCanceled))
 
         if result.rowcount:
+            logger.debug("job %s removed", self._job.id)
             await self._flush_events()
         else:
             raise LockFailedError("job lock expired")
@@ -465,6 +501,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                 await self._update_and_release(session)
                 self._emit_event(sx.Event(sx.EventKind.JobReady))
 
+        logger.debug("job %s released", self._job.id)
         await self._flush_events()
 
     async def complete(self) -> None:
@@ -473,6 +510,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                 await self._update_and_release(session, status=sx.JobStatus.Completed)
                 self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
+        logger.debug("job %s completed", self._job.id)
         await self._flush_events()
 
     async def release_with_error(self) -> None:
@@ -481,9 +519,12 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                 await self._update_and_release(session, status=sx.JobStatus.Error)
                 self._emit_event(sx.Event(sx.EventKind.JobCanceled))
 
+        logger.debug("job %s released with error", self._job.id)
         await self._flush_events()
 
     async def create_task(self, next_run_at: Optional[dt.datetime]) -> None:
+        logger.debug("job %s spawning a task...", self._job.id)
+
         async with self._session_maker() as session:
             async with session.begin():
                 if next_run_at is None:
@@ -494,9 +535,10 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                     await self._update(session, run_at=next_run_at, count=self.job.count + 1)
                     self._emit_event(sx.Event(sx.EventKind.JobReady))
 
+                task_id = uuid.uuid4().hex
                 session.add(
                     tables.Task(
-                        id=uuid.uuid4().hex,
+                        id=task_id,
                         created_at=dt.datetime.now(tz=dt.timezone.utc),
                         status=sx.TaskStatus.Pending,
                         job_id=self._job.id,
@@ -509,6 +551,12 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                 )
                 await session.flush()
                 self._emit_event(sx.Event(sx.EventKind.TaskReady))
+
+        logger.debug("job %s spawned a task %s", self._job.id, task_id)
+        if next_run_at is None:
+            logger.debug("job %s completed", self._job.id)
+        else:
+            logger.debug("job %s rescheduled", self._job.id)
 
         await self._flush_events()
 
@@ -550,6 +598,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
         :return: task lock or `None` if there is no task to lock.
         """
+
+        logger.debug("locking a task...")
 
         async with session_maker() as session:
             async with session.begin():
@@ -612,15 +662,19 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                             ),
                         )
                         if result.rowcount:
+                            logger.debug("task %s locked", task.id)
                             session.expunge(task)
-                            return cls(session_maker, task, period, identifier, event_sender), dt.timedelta(0)
+                            lock = cls(session_maker, task, period, identifier, event_sender)
+                            return lock, dt.timedelta(0)
                         else:
-                            # task has been reacquired by another worker
+                            logger.debug("task acquired by another worker")
                             return None, dt.timedelta(0)
                     else:
+                        logger.debug("no upcoming tasks found")
                         return None, delay
 
                 else:
+                    logger.debug("task timeline is empty")
                     return None, dt.timedelta.max
 
     def __init__(
@@ -685,6 +739,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 await self._update_and_release(session)
                 self._emit_event(sx.Event(sx.EventKind.TaskReady))
 
+        logger.debug("task %s released", self._task.id)
+
         await self._flush_events()
 
     async def remove(self) -> None:
@@ -705,6 +761,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
                 self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
 
+        logger.debug("task %s removed", self._task.id)
+
         await self._flush_events()
 
     async def release_with_error(self) -> None:
@@ -713,6 +771,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 await self._update_and_release(session, status=sx.TaskStatus.Failed, attempts=self._task.attempts + 1)
                 self._emit_event(sx.Event(sx.EventKind.TaskFailed))
 
+        logger.debug("task %s released with error", self._task.id)
+
         await self._flush_events()
 
     async def succeed(self) -> None:
@@ -720,6 +780,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             async with session.begin():
                 await self._update_and_release(session, status=sx.TaskStatus.Succeeded)
                 self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
+
+        logger.debug("task %s released as succeeded", self._task.id)
 
         await self._flush_events()
 
@@ -759,7 +821,9 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                     ),
                 )
 
-                return bool(result.rowcount)
+        logger.debug("task %s lock extended by %s", self._task.id, period)
+
+        return bool(result.rowcount)
 
     async def _update_and_release(self, session: aiosa.AsyncSession, **value: Any) -> None:
         result = cast(

@@ -49,10 +49,9 @@ class TaskFetcher[SchT: Schedule, JlkT: JobLock, TlkT: TaskLock]:
             logger.debug("task %s locked", task_lock.task.id)
             return task_lock, dt.timedelta(0)
 
-        logger.debug("processing jobs...")
         job_lock, next_job_delay = await self._lock_manager.lock_upcoming_job()
         if job_lock is not None:
-            logger.debug("job %s locked", job_lock.job.id)
+            logger.debug("processing job %s", job_lock.job.id)
             await self._process_job(job_lock)
             return None, dt.timedelta(0)
         else:
@@ -65,7 +64,6 @@ class TaskFetcher[SchT: Schedule, JlkT: JobLock, TlkT: TaskLock]:
             next_job_run = schedule.next_run(now=now, prev=job_lock.job.run_at, count=job_lock.job.count + 1)
 
             await job_lock.create_task(next_run_at=next_job_run)
-            logger.debug("job %s spawned a task", job_lock.job.id)
 
 
 class TaskStream[SchT: Schedule, JlkT: JobLock, TlkT: TaskLock](AsyncIterator[TlkT]):
