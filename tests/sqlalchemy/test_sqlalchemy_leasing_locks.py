@@ -331,7 +331,7 @@ async def test_sqlalchemy_leasing_task_lock_context_manager_exception(
             raise CustomException()
 
     task = await task_table.select(task.id)
-    assert task.status is TaskStatus.Failed
+    assert task.status is TaskStatus.Error
     assert task.acquired_by is None
     assert task.acquired_until is None
 
@@ -349,7 +349,7 @@ async def test_sqlalchemy_leasing_task_lock_release_with_status(
     assert await task_table.count() == 1
 
     task = await task_table.select(task.id)
-    assert task.status is TaskStatus.Failed
+    assert task.status is TaskStatus.Error
     assert task.acquired_by is None
     assert task.acquired_until is None
 

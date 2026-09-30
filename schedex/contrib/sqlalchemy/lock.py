@@ -768,7 +768,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
     async def release_with_error(self) -> None:
         async with self._session_maker() as session:
             async with session.begin():
-                await self._update_and_release(session, status=sx.TaskStatus.Failed, attempts=self._task.attempts + 1)
+                await self._update_and_release(session, status=sx.TaskStatus.Error, attempts=self._task.attempts + 1)
                 self._emit_event(sx.Event(sx.EventKind.TaskFailed))
 
         logger.debug("task %s released with error", self._task.id)

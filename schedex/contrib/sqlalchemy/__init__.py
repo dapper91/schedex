@@ -1,4 +1,5 @@
 from .lock import (
+    LockFailedError,
     SqlAlchemyLeasingJobLock,
     SqlAlchemyLeasingLockManager,
     SqlAlchemyLeasingTaskLock,
