@@ -401,6 +401,8 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             task_args=self._task["task_args"],
             meta=self._task["meta"],
             run_at=self._task["run_at"],
+            acquired_by=self._task["acquired_by"],
+            acquired_until=self._task["acquired_until"],
         )
 
     async def __aenter__(self) -> Self:

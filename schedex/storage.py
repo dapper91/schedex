@@ -110,6 +110,8 @@ class StoredTask:
     task_args: bytes
     meta: bytes
     run_at: dt.datetime
+    acquired_by: Optional[str]
+    acquired_until: Optional[dt.datetime]
 
 
 class TaskManager(abc.ABC):
