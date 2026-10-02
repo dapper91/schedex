@@ -22,6 +22,7 @@ from .scheduler import (
 )
 from .serializer import Serializable
 from .storage import (
+    JobAlreadyExists,
     JobManager,
     JobStatus,
     OwnedTransaction,

@@ -1,9 +1,11 @@
 from types import TracebackType
 from typing import Optional, Self, cast
 
-import pymongo.asynchronous.client_session as mgses
-import pymongo.asynchronous.collection as mgcol
-import pymongo.asynchronous.mongo_client as mgcli
+import pymongo as pm
+import pymongo.asynchronous.client_session as pmses
+import pymongo.asynchronous.collection as pmcol
+import pymongo.asynchronous.mongo_client as pmcli
+import pymongo.errors
 
 import schedex as sx
 
@@ -17,9 +19,9 @@ class PyMongoStoredJobManager:
     """
 
     async def _get_job(
-        self, session: mgses.AsyncClientSession, dbname: Optional[str], job_id: str
+        self, session: pmses.AsyncClientSession, dbname: Optional[str], job_id: str
     ) -> Optional[sx.StoredJob]:
-        collection = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
+        collection = cast(pmcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
 
         if (job := await collection.find_one({"id": job_id}, session=session)) is not None:
             return sx.StoredJob(
@@ -36,25 +38,28 @@ class PyMongoStoredJobManager:
         else:
             return None
 
-    async def _add_job(self, session: mgses.AsyncClientSession, dbname: Optional[str], job: sx.StoredJob) -> None:
-        collection = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
-        await collection.insert_one(
-            Job(
-                id=job.id,
-                created_at=job.created_at,
-                status=job.status,
-                schedule=job.schedule,
-                count=job.count,
-                task_name=job.task_name,
-                task_args=job.task_args,
-                meta=job.meta,
-                run_at=job.run_at,
-            ),
-            session=session,
-        )
+    async def _add_job(self, session: pmses.AsyncClientSession, dbname: Optional[str], job: sx.StoredJob) -> None:
+        collection = cast(pmcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
+        try:
+            await collection.insert_one(
+                Job(
+                    id=job.id,
+                    created_at=job.created_at,
+                    status=job.status,
+                    schedule=job.schedule,
+                    count=job.count,
+                    task_name=job.task_name,
+                    task_args=job.task_args,
+                    meta=job.meta,
+                    run_at=job.run_at,
+                ),
+                session=session,
+            )
+        except pm.errors.DuplicateKeyError as e:
+            raise sx.JobAlreadyExists(job.id) from e
 
-    async def _cancel_job(self, session: mgses.AsyncClientSession, dbname: Optional[str], job_id: str) -> bool:
-        collection = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
+    async def _cancel_job(self, session: pmses.AsyncClientSession, dbname: Optional[str], job_id: str) -> bool:
+        collection = cast(pmcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
         result = await collection.delete_one({"id": job_id}, session=session)
 
         return bool(result.deleted_count)
@@ -65,7 +70,7 @@ class PyMongoJobManager(PyMongoStoredJobManager, sx.JobManager):
     PyMongo job manager.
     """
 
-    def __init__(self, client: mgcli.AsyncMongoClient[DocumentType], dbname: Optional[str]):
+    def __init__(self, client: pmcli.AsyncMongoClient[DocumentType], dbname: Optional[str]):
         self._client = client
         self._dbname = dbname
 
@@ -82,17 +87,17 @@ class PyMongoJobManager(PyMongoStoredJobManager, sx.JobManager):
             return await self._cancel_job(session, self._dbname, job_id)
 
 
-class PyMongoOwnedTransaction(PyMongoStoredJobManager, sx.OwnedTransaction[mgses.AsyncClientSession]):
+class PyMongoOwnedTransaction(PyMongoStoredJobManager, sx.OwnedTransaction[pmses.AsyncClientSession]):
     """
     PyMongo owned transaction.
     """
 
-    def __init__(self, session: mgses.AsyncClientSession, dbname: Optional[str]):
+    def __init__(self, session: pmses.AsyncClientSession, dbname: Optional[str]):
         self._session = session
         self._dbname = dbname
 
     @property
-    def outer(self) -> mgses.AsyncClientSession:
+    def outer(self) -> pmses.AsyncClientSession:
         return self._session
 
     async def __aenter__(self) -> Self:
@@ -131,18 +136,18 @@ class PyMongoOwnedTransaction(PyMongoStoredJobManager, sx.OwnedTransaction[mgses
         await self._session.abort_transaction()
 
 
-class PyMongoTransaction(PyMongoStoredJobManager, sx.Transaction[mgses.AsyncClientSession]):
+class PyMongoTransaction(PyMongoStoredJobManager, sx.Transaction[pmses.AsyncClientSession]):
     """
     PyMongo transaction.
     """
 
-    def __init__(self, outer_tx: mgses.AsyncClientSession, dbname: Optional[str]):
+    def __init__(self, outer_tx: pmses.AsyncClientSession, dbname: Optional[str]):
         assert outer_tx.in_transaction, "transaction is not started"
         self._outer_tx = outer_tx
         self._dbname = dbname
 
     @property
-    def outer(self) -> mgses.AsyncClientSession:
+    def outer(self) -> pmses.AsyncClientSession:
         return self._outer_tx
 
     async def get_job(self, job_id: str) -> Optional[sx.StoredJob]:
@@ -155,17 +160,17 @@ class PyMongoTransaction(PyMongoStoredJobManager, sx.Transaction[mgses.AsyncClie
         return await self._cancel_job(self._outer_tx, self._dbname, job_id)
 
 
-class PyMongoTransactionManager(sx.TransactionManager[mgses.AsyncClientSession]):
+class PyMongoTransactionManager(sx.TransactionManager[pmses.AsyncClientSession]):
     """
     PyMongo storage.
     """
 
-    def __init__(self, client: mgcli.AsyncMongoClient[DocumentType], dbname: Optional[str] = None):
+    def __init__(self, client: pmcli.AsyncMongoClient[DocumentType], dbname: Optional[str] = None):
         self._client = client
         self._dbname = dbname
 
     def begin_transactional(self) -> PyMongoOwnedTransaction:
         return PyMongoOwnedTransaction(self._client.start_session(), self._dbname)
 
-    def within_transaction(self, outer_tx: mgses.AsyncClientSession) -> PyMongoTransaction:
+    def within_transaction(self, outer_tx: pmses.AsyncClientSession) -> PyMongoTransaction:
         return PyMongoTransaction(outer_tx, self._dbname)

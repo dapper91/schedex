@@ -2,6 +2,7 @@ from types import TracebackType
 from typing import Any, Optional, Self, cast
 
 import sqlalchemy as sa
+import sqlalchemy.exc
 import sqlalchemy.ext.asyncio as aiosa
 
 import schedex as sx
@@ -41,7 +42,10 @@ class SqlAlchemyStoredJobManager:
                 run_at=job.run_at,
             )
         )
-        await session.flush()
+        try:
+            await session.flush()
+        except sa.exc.IntegrityError as e:
+            raise sx.JobAlreadyExists(job.id) from e
 
     async def _cancel_job(self, session: aiosa.AsyncSession, job_id: str) -> bool:
         result = cast(sa.CursorResult[Any], await session.execute(sa.delete(tables.Job).where(tables.Job.id == job_id)))

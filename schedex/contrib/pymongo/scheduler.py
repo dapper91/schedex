@@ -1,7 +1,7 @@
 from typing import Iterable, Optional
 
-import pymongo.asynchronous.client_session as mgses
-import pymongo.asynchronous.mongo_client as mgcli
+import pymongo.asynchronous.client_session as pmses
+import pymongo.asynchronous.mongo_client as pmcli
 
 import schedex as sx
 
@@ -22,7 +22,7 @@ class PyMongoScheduler[SchT: sx.Schedule](sx.Scheduler[SchT]):
 
     def __init__(
         self,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         schedule_type: type[SchT],
         event_sender: Optional[sx.EventSender] = None,
         middlewares: Iterable[sx.SchedulerMiddleware[SchT]] = (),
@@ -33,7 +33,7 @@ class PyMongoScheduler[SchT: sx.Schedule](sx.Scheduler[SchT]):
         self._event_sender = event_sender
 
 
-class PyMongoTransactionalScheduler[SchT: sx.Schedule](sx.TransactionalScheduler[mgses.AsyncClientSession, SchT]):
+class PyMongoTransactionalScheduler[SchT: sx.Schedule](sx.TransactionalScheduler[pmses.AsyncClientSession, SchT]):
     """
     PyMongo transactional job scheduler.
 
@@ -46,7 +46,7 @@ class PyMongoTransactionalScheduler[SchT: sx.Schedule](sx.TransactionalScheduler
 
     def __init__(
         self,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         schedule_type: type[SchT],
         event_sender: Optional[sx.EventSender] = None,
         middlewares: Iterable[sx.SchedulerMiddleware[SchT]] = (),

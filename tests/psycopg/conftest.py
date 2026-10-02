@@ -6,7 +6,7 @@ import pytest
 from tests.types import AsyncFixture
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="session")
 def database_url(pytestconfig: pytest.Config) -> str:
     url: Optional[str] = pytestconfig.getoption("--postgres-url", default=None, skip=True)
     if url is None:

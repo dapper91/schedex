@@ -2,7 +2,7 @@ import contextlib as cl
 import logging
 from typing import Any, AsyncGenerator, AsyncIterator, Mapping
 
-import pymongo.asynchronous.mongo_client as mgcli
+import pymongo.asynchronous.mongo_client as pmcli
 
 from schedex import Event, EventKind, EventReceiver
 from schedex.runtime import iterator as it
@@ -21,7 +21,7 @@ class PyMongoEventReceiver(EventReceiver):
     :param dbname: database name
     """
 
-    def __init__(self, client: mgcli.AsyncMongoClient[DocumentType], dbname: str):
+    def __init__(self, client: pmcli.AsyncMongoClient[DocumentType], dbname: str):
         self._client = client
         self._dbname = dbname
 
@@ -43,7 +43,8 @@ class PyMongoEventReceiver(EventReceiver):
             logger.info("event source configured")
 
             async with job_changes_stream, task_changes_stream:
-                yield self._generate_events(it.merge_iterators(job_changes_stream, task_changes_stream))
+                async with it.merge_iterators(job_changes_stream, task_changes_stream) as merged:
+                    yield self._generate_events(merged)
 
     async def _generate_events(self, changes_stream: AsyncIterator[DocumentType]) -> AsyncGenerator[Event, None]:
         async for notification in changes_stream:

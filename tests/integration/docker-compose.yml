@@ -15,8 +15,6 @@ services:
       /var/lib/postgresql/data:rw
     ports:
       - 5432:5432
-    logging:
-      driver: none
     healthcheck:
       test: pg_isready -U "${DB_USER}" -d "${DB_NAME}"
       interval: 5s
@@ -39,8 +37,6 @@ services:
       /var/lib/mysql:rw
     ports:
       - 3306:3306
-    logging:
-      driver: none
     healthcheck:
       test: healthcheck.sh --connect --innodb_initialized
       interval: 5s
