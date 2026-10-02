@@ -2,7 +2,7 @@ import contextlib as cl
 import logging
 from typing import Any, AsyncGenerator, AsyncIterator, Mapping
 
-import pymongo.asynchronous.mongo_client as mgcli
+import pymongo.asynchronous.mongo_client as pmcli
 
 from schedex import Event, EventKind, EventReceiver
 from schedex.runtime import iterator as it
@@ -21,7 +21,7 @@ class PyMongoEventReceiver(EventReceiver):
     :param dbname: database name
     """
 
-    def __init__(self, client: mgcli.AsyncMongoClient[DocumentType], dbname: str):
+    def __init__(self, client: pmcli.AsyncMongoClient[DocumentType], dbname: str):
         self._client = client
         self._dbname = dbname
 

@@ -5,9 +5,9 @@ import uuid
 from types import TracebackType
 from typing import Any, Optional, Self, cast
 
-import pymongo.asynchronous.client_session as mgses
-import pymongo.asynchronous.collection as mgcol
-import pymongo.asynchronous.mongo_client as mgcli
+import pymongo.asynchronous.client_session as pmses
+import pymongo.asynchronous.collection as pmcol
+import pymongo.asynchronous.mongo_client as pmcli
 
 import schedex as sx
 
@@ -31,7 +31,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
     @classmethod
     async def try_lock(
         cls,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         dbname: Optional[str],
         period: dt.timedelta,
         identifier: str,
@@ -46,7 +46,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         logger.debug("locking a job...")
 
         async with client.start_session() as session:
-            jobs = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
+            jobs = cast(pmcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
             async with await session.start_transaction():
                 closest_jobs: list[tuple[dt.timedelta, Job]] = []
                 # finds the earliest unacquired job
@@ -112,7 +112,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
     def __init__(
         self,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         dbname: Optional[str],
         job: Job,
         period: dt.timedelta,
@@ -171,7 +171,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
     async def remove(self) -> None:
         async with self._client.start_session() as session:
-            jobs = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, self._dbname, JOBS_COLLECTION))
+            jobs = cast(pmcol.AsyncCollection[Job], utils.get_collection(session, self._dbname, JOBS_COLLECTION))
 
             async with await session.start_transaction():
                 result = await jobs.delete_one(
@@ -230,7 +230,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                     await self._update(session, run_at=next_run_at, count=self.job.count + 1)
                     self._emit_event(sx.Event(sx.EventKind.JobReady))
 
-                tasks = cast(mgcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
+                tasks = cast(pmcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
                 task_id = uuid.uuid4().hex
                 await tasks.insert_one(
                     Task(
@@ -256,11 +256,11 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
         await self._flush_events()
 
-    async def _update_and_release(self, session: mgses.AsyncClientSession, **value: Any) -> None:
+    async def _update_and_release(self, session: pmses.AsyncClientSession, **value: Any) -> None:
         await self._update(session, acquired_by=None, acquired_until=None, **value)
 
-    async def _update(self, session: mgses.AsyncClientSession, **value: Any) -> None:
-        jobs = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, self._dbname, JOBS_COLLECTION))
+    async def _update(self, session: pmses.AsyncClientSession, **value: Any) -> None:
+        jobs = cast(pmcol.AsyncCollection[Job], utils.get_collection(session, self._dbname, JOBS_COLLECTION))
 
         result = await jobs.update_one(
             {
@@ -283,7 +283,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
     @classmethod
     async def try_lock(
         cls,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         dbname: Optional[str],
         period: dt.timedelta,
         identifier: str,
@@ -298,7 +298,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("locking a task...")
 
         async with client.start_session() as session:
-            tasks = cast(mgcol.AsyncCollection[Task], utils.get_collection(session, dbname, TASKS_COLLECTION))
+            tasks = cast(pmcol.AsyncCollection[Task], utils.get_collection(session, dbname, TASKS_COLLECTION))
 
             async with await session.start_transaction():
                 closest_tasks: list[tuple[dt.timedelta, Task]] = []
@@ -365,7 +365,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
     def __init__(
         self,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         dbname: Optional[str],
         task: Task,
         period: dt.timedelta,
@@ -433,7 +433,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
     async def remove(self) -> None:
         async with self._client.start_session() as session:
-            tasks = cast(mgcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
+            tasks = cast(pmcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
 
             async with await session.start_transaction():
                 result = await tasks.delete_one(
@@ -492,7 +492,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
     async def remain(self) -> Optional[dt.timedelta]:
         async with self._client.start_session() as session:
-            tasks = cast(mgcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
+            tasks = cast(pmcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
 
             async with await session.start_transaction():
                 task = await tasks.find_one(
@@ -509,7 +509,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
     async def extend(self, period: dt.timedelta) -> bool:
         async with self._client.start_session() as session:
-            tasks = cast(mgcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
+            tasks = cast(pmcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
 
             async with await session.start_transaction():
                 result = await tasks.update_one(
@@ -529,8 +529,8 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
         return bool(result.modified_count)
 
-    async def _update_and_release(self, session: mgses.AsyncClientSession, **value: Any) -> None:
-        tasks = cast(mgcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
+    async def _update_and_release(self, session: pmses.AsyncClientSession, **value: Any) -> None:
+        tasks = cast(pmcol.AsyncCollection[Task], utils.get_collection(session, self._dbname, TASKS_COLLECTION))
         result = await tasks.update_one(
             {
                 "id": self._task["id"],
@@ -557,7 +557,7 @@ class PyMongoLeasingLockManager(sx.LockManager[PyMongoLeasingJobLock, PyMongoLea
 
     def __init__(
         self,
-        client: mgcli.AsyncMongoClient[DocumentType],
+        client: pmcli.AsyncMongoClient[DocumentType],
         dbname: Optional[str],
         period: dt.timedelta,
         identifier: str,

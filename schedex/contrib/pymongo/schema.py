@@ -3,8 +3,8 @@ import inspect
 import typing
 from typing import Any, Mapping, NotRequired, Optional, TypedDict, Union
 
-import pymongo as mg
-import pymongo.asynchronous.mongo_client as mgcli
+import pymongo as pm
+import pymongo.asynchronous.mongo_client as pmcli
 import pymongo.errors
 
 from schedex import JobStatus, TaskStatus
@@ -39,7 +39,7 @@ class Job(TypedDict):
     acquired_until: NotRequired[Optional[dt.datetime]]
 
 
-async def create_jobs_schema(database: mgcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
+async def create_jobs_schema(database: pmcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
     collection = database.get_collection(JOBS_COLLECTION)
     session = database.client.start_session()
 
@@ -50,22 +50,22 @@ async def create_jobs_schema(database: mgcli.database.AsyncDatabase[DocumentType
             validator=_build_bson_schema(Job) if validate else None,
             check_exists=True,
         )
-    except mg.errors.CollectionInvalid:
+    except pm.errors.CollectionInvalid:
         pass
 
     await collection.create_indexes(
         [
-            mg.IndexModel(
-                [("id", mg.DESCENDING)],
+            pm.IndexModel(
+                [("id", pm.DESCENDING)],
                 unique=True,
                 name="id_unique",
             ),
-            mg.IndexModel(
-                [("run_at", mg.DESCENDING)],
+            pm.IndexModel(
+                [("run_at", pm.DESCENDING)],
                 name="run_at",
             ),
-            mg.IndexModel(
-                [("acquired_until", mg.DESCENDING)],
+            pm.IndexModel(
+                [("acquired_until", pm.DESCENDING)],
                 name="acquired_until",
             ),
         ],
@@ -103,7 +103,7 @@ class Task(TypedDict):
     acquired_until: NotRequired[Optional[dt.datetime]]
 
 
-async def create_tasks_schema(database: mgcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
+async def create_tasks_schema(database: pmcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
     collection = database.get_collection(TASKS_COLLECTION)
     session = database.client.start_session()
 
@@ -114,26 +114,26 @@ async def create_tasks_schema(database: mgcli.database.AsyncDatabase[DocumentTyp
             validator=_build_bson_schema(Task) if validate else None,
             check_exists=True,
         )
-    except mg.errors.CollectionInvalid:
+    except pm.errors.CollectionInvalid:
         pass
 
     await collection.create_indexes(
         [
-            mg.IndexModel(
-                [("id", mg.DESCENDING)],
+            pm.IndexModel(
+                [("id", pm.DESCENDING)],
                 unique=True,
                 name="id_unique",
             ),
-            mg.IndexModel(
-                [("job_id", mg.DESCENDING)],
+            pm.IndexModel(
+                [("job_id", pm.DESCENDING)],
                 name="job_id",
             ),
-            mg.IndexModel(
-                [("run_at", mg.DESCENDING)],
+            pm.IndexModel(
+                [("run_at", pm.DESCENDING)],
                 name="run_at",
             ),
-            mg.IndexModel(
-                [("acquired_until", mg.DESCENDING)],
+            pm.IndexModel(
+                [("acquired_until", pm.DESCENDING)],
                 name="acquired_until",
             ),
         ],
@@ -141,7 +141,7 @@ async def create_tasks_schema(database: mgcli.database.AsyncDatabase[DocumentTyp
     )
 
 
-async def create_schema(database: mgcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
+async def create_schema(database: pmcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
     await create_jobs_schema(database, validate)
     await create_tasks_schema(database, validate)
 
