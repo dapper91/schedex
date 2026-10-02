@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.2.1 (2026-10-02)
+
+### Bug Fixes
+
+- JobAlreadyExists raised on job duplicate.
+  ([`f3b807d`](https://github.com/dapper91/schedex/commit/f3b807d9528c8fe2090afa1ebb2ce9789e1627f0))
+
+- Merge_iterators task leak bug fixed
+  ([`0f7a733`](https://github.com/dapper91/schedex/commit/0f7a7331464356b77cf992adb0103940c7f6e7ca))
+
+- StoredTask fields extended.
+  ([`747ff5b`](https://github.com/dapper91/schedex/commit/747ff5bb82ebfdf98bea551292bb4308ed952c41))
+
+### Documentation
+
+- Readme example fixed.
+  ([`ff14fd1`](https://github.com/dapper91/schedex/commit/ff14fd102fc19f8bd59e75b2455d6b0e15d7ee3d))
+
+### Refactoring
+
+- Pymongo imports refactored
+  ([`9613cd0`](https://github.com/dapper91/schedex/commit/9613cd01e883dd239f6254846a1c796956e5312f))
+
+
 ## v0.2.0 (2026-09-30)
 
 ### Bug Fixes
