@@ -7,6 +7,12 @@ from types import TracebackType
 from typing import Optional, Self
 
 
+class JobAlreadyExists(Exception):
+    """
+    Raised when a job already exists.
+    """
+
+
 class JobStatus(enum.IntEnum):
     """
     Job status.

@@ -38,20 +38,23 @@ class PyMongoStoredJobManager:
 
     async def _add_job(self, session: mgses.AsyncClientSession, dbname: Optional[str], job: sx.StoredJob) -> None:
         collection = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
-        await collection.insert_one(
-            Job(
-                id=job.id,
-                created_at=job.created_at,
-                status=job.status,
-                schedule=job.schedule,
-                count=job.count,
-                task_name=job.task_name,
-                task_args=job.task_args,
-                meta=job.meta,
-                run_at=job.run_at,
-            ),
-            session=session,
-        )
+        try:
+            await collection.insert_one(
+                Job(
+                    id=job.id,
+                    created_at=job.created_at,
+                    status=job.status,
+                    schedule=job.schedule,
+                    count=job.count,
+                    task_name=job.task_name,
+                    task_args=job.task_args,
+                    meta=job.meta,
+                    run_at=job.run_at,
+                ),
+                session=session,
+            )
+        except pm.errors.DuplicateKeyError as e:
+            raise sx.JobAlreadyExists(job.id) from e
 
     async def _cancel_job(self, session: mgses.AsyncClientSession, dbname: Optional[str], job_id: str) -> bool:
         collection = cast(mgcol.AsyncCollection[Job], utils.get_collection(session, dbname, JOBS_COLLECTION))
