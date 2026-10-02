@@ -43,7 +43,8 @@ class PyMongoEventReceiver(EventReceiver):
             logger.info("event source configured")
 
             async with job_changes_stream, task_changes_stream:
-                yield self._generate_events(it.merge_iterators(job_changes_stream, task_changes_stream))
+                async with it.merge_iterators(job_changes_stream, task_changes_stream) as merged:
+                    yield self._generate_events(merged)
 
     async def _generate_events(self, changes_stream: AsyncIterator[DocumentType]) -> AsyncGenerator[Event, None]:
         async for notification in changes_stream:
