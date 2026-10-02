@@ -32,6 +32,7 @@ jobs:
           - '3.14'
     env:
       DOCKER_COMPOSE_PROJECT_PATH: tests/integration
+      MINIMAL_COVERAGE: 70
 
     steps:
       - uses: actions/checkout@v6
@@ -40,17 +41,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install --group dev -e ".[asyncmy,cron,dishka,opentelemetry,psycopg,sqlalchemy]"
+        run: pip install --group dev -e ".[asyncmy,cron,dishka,opentelemetry,psycopg,sqlalchemy,pymongo]"
 
       - name: Run unit tests
-        run: pytest -m "unit"
+        env:
+          COVERAGE_FILE: coverage/unit.dat
+        run: pytest --cov=schedex -m "unit"
 
       - name: Init postgres tests deps
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" up --quiet-pull -d postgres --wait
       - name: Run postgres integration tests
+        env:
+          COVERAGE_FILE: coverage/postgres.dat
         run: | 
           export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
-          pytest -m "postgres" --postgres-url "postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME"
+          pytest --cov=schedex -m "postgres" --postgres-url "postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME"
       - name: Destroy postgres tests deps
         if: always()
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
@@ -58,9 +63,28 @@ jobs:
       - name: Init mysql tests deps
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" up --quiet-pull -d mariadb --wait
       - name: Run mysql integration tests
+        env:
+          COVERAGE_FILE: coverage/mysql.dat
         run: | 
           export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
-          pytest -m "mysql" --mysql-url "mysql://$DB_USER:$DB_PASSWORD@localhost:3306/$DB_NAME"
+          pytest --cov=schedex -m "mysql" --mysql-url "mysql://$DB_USER:$DB_PASSWORD@localhost:3306/$DB_NAME"
       - name: Destroy mysql tests deps
         if: always()
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
+
+      - name: Init mongodb tests deps
+        run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" up --quiet-pull -d mongodb --wait
+      - name: Run mongodb integration tests
+        env:
+          COVERAGE_FILE: coverage/pymongo.dat
+        run: | 
+          export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
+          pytest --cov=schedex -m "pymongo" --mongodb-url "mongodb://$DB_USER:$DB_PASSWORD@localhost:27017/?replicaSet=rs0"
+      - name: Destroy mongodb tests deps
+        if: always()
+        run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
+
+      - name: Combine coverage
+        run: |
+          coverage combine coverage/*
+          coverage xml --data-file .coverage --fail-under="$MINIMAL_COVERAGE"
