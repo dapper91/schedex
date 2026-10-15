@@ -182,7 +182,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                     },
                     session=session,
                 )
-                self._emit_event(sx.Event(sx.EventKind.JobCanceled))
+                self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
         if result.deleted_count:
             logger.debug("job %s removed", self._job["id"])
@@ -475,19 +475,6 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released as succeeded", self._task["id"])
 
         await self._flush_events()
-
-    # async def postpone(self, delay: dt.timedelta) -> None:
-    #     async with self._client.start_session() as session:
-    #         async with await session.start_transaction():
-    #             await self._update_and_release(
-    #                 session,
-    #                 status=sx.TaskStatus.Failed,
-    #                 attempts=self._task.attempts + 1,
-    #                 run_at=dt.datetime.now(tz=dt.timezone.utc) + delay,
-    #             )
-    #             self._emit_event(sx.Event(sx.EventKind.TaskFailed))
-    #
-    #     await self._flush_events()
 
     async def is_locked(self) -> bool:
         return (remain := await self.remain()) is not None and remain > dt.timedelta(0)

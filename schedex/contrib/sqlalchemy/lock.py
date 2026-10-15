@@ -105,15 +105,9 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         return False
 
     async def release(self, rollback: bool = False) -> None:
-        self._session.expunge(self._job)
-        try:
-            if rollback:
-                await self._session.rollback()
-                self._emit_event(sx.Event(sx.EventKind.JobReady), replace=True)
-            else:
-                await self._session.commit()
-        finally:
-            await self._session.close()
+        await self._release(rollback=rollback)
+
+        self._emit_event(sx.Event(sx.EventKind.JobReady), replace=True if rollback else False)
 
         await self._flush_events()
         logger.debug("job %s released", self._job.id)
@@ -124,15 +118,18 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         )
         self._emit_event(sx.Event(sx.EventKind.JobCanceled))
 
-        await self.release()
+        await self._release()
 
+        await self._flush_events()
         logger.debug("job %s released with error", self._job.id)
 
     async def remove(self) -> None:
         await self._session.execute(sa.delete(tables.Job).where(tables.Job.id == self._job.id))
         self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
-        await self.release()
+        await self._release()
+
+        await self._flush_events()
         logger.debug("job %s removed", self._job.id)
 
     async def complete(self) -> None:
@@ -141,7 +138,9 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         )
         self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
-        await self.release()
+        await self._release()
+
+        await self._flush_events()
         logger.debug("job %s completed", self._job.id)
 
     async def create_task(self, next_run_at: Optional[dt.datetime] = None) -> None:
@@ -176,6 +175,16 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         )
         self._emit_event(sx.Event(sx.EventKind.TaskReady))
         logger.debug("job %s spawned a task %s", self._job.id, task_id)
+
+    async def _release(self, rollback: bool = False) -> None:
+        self._session.expunge(self._job)
+        try:
+            if rollback:
+                await self._session.rollback()
+            else:
+                await self._session.commit()
+        finally:
+            await self._session.close()
 
 
 class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
@@ -269,7 +278,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         try:
             if rollback:
                 await self._session.rollback()
-                self._emit_event(sx.Event(sx.EventKind.JobReady), replace=True)
+                self._emit_event(sx.Event(sx.EventKind.TaskReady), replace=True)
             else:
                 await self._session.commit()
         finally:
@@ -489,7 +498,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         )
                     ),
                 )
-                self._emit_event(sx.Event(sx.EventKind.JobCanceled))
+                self._emit_event(sx.Event(sx.EventKind.JobCompleted))
 
         if result.rowcount:
             logger.debug("job %s removed", self._job.id)

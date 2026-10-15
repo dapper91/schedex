@@ -14,7 +14,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "postgres: postgresql database tests")
     config.addinivalue_line("markers", "mysql: mysql database tests")
     config.addinivalue_line("markers", "psycopg: psycopg postgresql driver tests")
-    config.addinivalue_line("markers", "pymongo: mongodb database tests")
+    config.addinivalue_line("markers", "mongodb: mongodb database tests")
     config.addinivalue_line("markers", "no_leaks: detect asyncio task leaks")
 
 

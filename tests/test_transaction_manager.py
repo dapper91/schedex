@@ -24,7 +24,7 @@ from tests.types import BaseStorage, StorageTransaction
                 lf("pymongo_storage_transaction"),
                 lf("pymongo_transaction_manager"),
             ),
-            id="pymongo",
+            id="mongodb",
         ),
     ],
 )
@@ -104,6 +104,40 @@ async def test_owned_transaction_add_job_rollback(
     await tx.rollback()
 
     await job_storage.assert_has_exactly({}, 0)
+
+
+@pytest.mark.time_machine("2026-10-10 22:30 +0500", tick=False)
+async def test_multiple_owned_transactions_isolation(
+    stored_job_factory: type[StoredJobFactory],
+    job_storage: BaseStorage,
+    transaction_manager: sx.TransactionManager[Any],
+) -> None:
+    stored_job = stored_job_factory.build()
+
+    tx1 = transaction_manager.begin_transactional()
+    tx2 = transaction_manager.begin_transactional()
+    await tx1.begin()
+    await tx2.begin()
+    await tx2.add_job(stored_job)
+    await tx1.rollback()
+    await tx2.commit()
+
+    await job_storage.assert_has_exactly(
+        dict(
+            id=stored_job.id,
+            created_at=stored_job.created_at,
+            status=stored_job.status,
+            schedule=stored_job.schedule,
+            count=stored_job.count,
+            task_name=stored_job.task_name,
+            task_args=stored_job.task_args,
+            meta=stored_job.meta,
+            run_at=stored_job.run_at,
+            acquired_by=None,
+            acquired_until=None,
+        ),
+        count=1,
+    )
 
 
 @pytest.mark.time_machine("2026-10-10 22:30 +0500", tick=False)

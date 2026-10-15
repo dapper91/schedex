@@ -67,3 +67,24 @@ class JobFactory(pf.factories.DataclassFactory[sx.Job]):
     schedule = sx.PeriodicSchedule.after(delay=dt.timedelta(seconds=1))
     meta = {"key": "value"}
     task = JsonSerializableBoundTask(name="test_task", args=(), kwargs={})
+
+
+class TaskFactory(pf.factories.DataclassFactory[sx.Task]):
+    func = lambda: lambda ctx: None
+    name = "test_task"
+    bound_task_cls = lambda: JsonSerializableBoundTask
+
+
+class TaskInfoFactory(pf.factories.DataclassFactory[sx.TaskInfo]):
+    id = lambda: uuid.uuid4().hex
+    job_id = lambda: uuid.uuid4().hex
+    sequence_number = 0
+    created_at = lambda: dt.datetime.now(tz=dt.timezone.utc)
+    attempts = 0
+    meta = {"key": "value"}
+
+
+class ContextFactory(pf.factories.DataclassFactory[sx.Context]):
+    state = object()
+    task = TaskInfoFactory
+    lock = object()

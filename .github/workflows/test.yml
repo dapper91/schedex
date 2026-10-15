@@ -32,7 +32,7 @@ jobs:
           - '3.14'
     env:
       DOCKER_COMPOSE_PROJECT_PATH: tests/integration
-      MINIMAL_COVERAGE: 70
+      MINIMAL_COVERAGE: 85
 
     steps:
       - uses: actions/checkout@v6
@@ -55,7 +55,7 @@ jobs:
           COVERAGE_FILE: coverage/postgres.dat
         run: | 
           export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
-          pytest --cov=schedex -m "postgres" --postgres-url "postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME"
+          pytest --cov=schedex -m "postgres or psycopg" --postgres-url "postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME"
       - name: Destroy postgres tests deps
         if: always()
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
@@ -76,10 +76,10 @@ jobs:
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" up --quiet-pull -d mongodb --wait
       - name: Run mongodb integration tests
         env:
-          COVERAGE_FILE: coverage/pymongo.dat
+          COVERAGE_FILE: coverage/mongodb.dat
         run: | 
           export `cat "$DOCKER_COMPOSE_PROJECT_PATH/.env" | xargs`
-          pytest --cov=schedex -m "pymongo" --mongodb-url "mongodb://$DB_USER:$DB_PASSWORD@localhost:27017/?replicaSet=rs0"
+          pytest --cov=schedex -m "mongodb" --mongodb-url "mongodb://$DB_USER:$DB_PASSWORD@localhost:27017/?replicaSet=rs0"
       - name: Destroy mongodb tests deps
         if: always()
         run: docker compose --project-directory "$DOCKER_COMPOSE_PROJECT_PATH" down
@@ -87,4 +87,5 @@ jobs:
       - name: Combine coverage
         run: |
           coverage combine coverage/*
+          coverage report
           coverage xml --data-file .coverage --fail-under="$MINIMAL_COVERAGE"

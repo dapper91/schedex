@@ -1,4 +1,5 @@
 import abc
+import dataclasses as dc
 import inspect
 import warnings
 from inspect import Parameter
@@ -87,6 +88,7 @@ def build_json_serializable_bound_task[CtxT, **P, R](
     return FuncBoundTask
 
 
+@dc.dataclass(frozen=True)
 class Task[CtxT, **P, R]:
     """
     Scheduler task.
@@ -96,31 +98,9 @@ class Task[CtxT, **P, R]:
     :param bound_task_cls: bound task class
     """
 
-    def __init__(
-        self,
-        func: Callable[Concatenate[CtxT, P], Awaitable[R]],
-        name: str,
-        bound_task_cls: type[BoundTask],
-    ):
-        self._func = func
-        self._name = name
-        self._bound_task_cls = bound_task_cls
-
-    @property
-    def name(self) -> str:
-        """
-        Task name.
-        """
-
-        return self._name
-
-    @property
-    def bound_task_cls(self) -> type[BoundTask]:
-        """
-        Bound task class.
-        """
-
-        return self._bound_task_cls
+    func: Callable[Concatenate[CtxT, P], Awaitable[R]]
+    name: str
+    bound_task_cls: type[BoundTask]
 
     async def __call__(self, context: CtxT, *args: P.args, **kwargs: P.kwargs) -> R:
         """
@@ -132,7 +112,7 @@ class Task[CtxT, **P, R]:
         :return: function result
         """
 
-        return await self._func(context, *args, **kwargs)
+        return await self.func(context, *args, **kwargs)
 
     def with_params(self, *args: P.args, **kwargs: P.kwargs) -> BoundTask:
         """
@@ -143,7 +123,7 @@ class Task[CtxT, **P, R]:
         :return: bound task
         """
 
-        return self._bound_task_cls(name=self._name, args=args, kwargs=kwargs)
+        return self.bound_task_cls(name=self.name, args=args, kwargs=kwargs)
 
 
 class SerializerBuilder[CtxT](Protocol):
