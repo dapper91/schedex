@@ -39,7 +39,7 @@ class TaskFetcher[SchT: Schedule, JlkT: JobLock, TlkT: TaskLock]:
         """
         Waits for an upcoming task.
 
-        :return: locked task
+        :return: tuple of locked task, next try delay
         """
 
         logger.debug("looking for upcoming task...")

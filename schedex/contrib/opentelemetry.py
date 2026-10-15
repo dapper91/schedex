@@ -50,9 +50,18 @@ def build_job_schedule_tracing_middleware[SchT: Schedule](
             "scheduler.job.name": job.task.name,
         }
 
-        with tracer.start_as_current_span(job.task.name, kind=otl.trace.SpanKind.PRODUCER, attributes=attributes):
+        with tracer.start_as_current_span(
+            job.task.name,
+            kind=otl.trace.SpanKind.PRODUCER,
+            attributes=attributes,
+        ) as span:
             propagator.inject(job.meta)
-            return await wrapped(job)
+            try:
+                return await wrapped(job)
+            except Exception as exc:
+                span.set_status(otl.trace.Status(otl.trace.StatusCode.ERROR, type(exc).__qualname__))
+                span.record_exception(exc)
+                raise exc
 
     return trace_job_schedule
 
@@ -73,6 +82,11 @@ def build_job_schedule_metrics_collecting_middleware[SchT: Schedule](
         name="scheduler.submit.jobs",
         unit="jobs",
         description="Measures the total number of scheduled jobs",
+    )
+    error_counter = meter.create_counter(
+        name="scheduler.submit.errors",
+        unit="errors",
+        description="Measures the number of job scheduling errors",
     )
     duration_histogram = meter.create_histogram(
         name="scheduler.submit.duration",
@@ -95,6 +109,9 @@ def build_job_schedule_metrics_collecting_middleware[SchT: Schedule](
         started_at = timeit.default_timer()
         try:
             return await wrapped(job)
+        except Exception as exc:
+            error_counter.add(amount=1, attributes=attributes)
+            raise exc
         finally:
             duration_histogram.record(amount=timeit.default_timer() - started_at, attributes=attributes)
 
@@ -139,6 +156,7 @@ def build_task_execution_tracing_middleware[CtxT: Context[Any, Any]](
             "scheduler.job.id": context.task.job_id,
             "scheduler.task.id": context.task.id,
             "scheduler.task.name": task.name,
+            "scheduler.task.attempt": context.task.attempts,
         }
 
         propagated_context = propagator.extract(context.task.meta)
@@ -152,8 +170,13 @@ def build_task_execution_tracing_middleware[CtxT: Context[Any, Any]](
                 links=[otl.trace.Link(linked_context)],
                 kind=otl.trace.SpanKind.CONSUMER,
                 attributes=attributes,
-            ):
-                return await wrapped(context, task)
+            ) as span:
+                try:
+                    return await wrapped(context, task)
+                except Exception as exc:
+                    span.set_status(otl.trace.Status(otl.trace.StatusCode.ERROR, type(exc).__qualname__))
+                    span.record_exception(exc)
+                    raise exc
         finally:
             otl.context.detach(token)
 

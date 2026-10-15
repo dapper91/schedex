@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import pytest
 import sqlalchemy as sa
@@ -109,27 +109,78 @@ def sa_transaction_manager(
 
 
 @pytest.fixture
-def sa_scheduler(
+def sa_scheduler_builder(
     sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
+) -> Callable[..., sxsa.SqlAlchemyScheduler[sx.PeriodicSchedule]]:
+    def builder(**kwargs: Any) -> sxsa.SqlAlchemyScheduler[sx.PeriodicSchedule]:
+        return sxsa.SqlAlchemyScheduler(sa_session_maker, schedule_type=sx.PeriodicSchedule, **kwargs)
+
+    return builder
+
+
+@pytest.fixture
+def sa_scheduler(
+    sa_scheduler_builder: Callable[..., sxsa.SqlAlchemyScheduler[sx.PeriodicSchedule]],
 ) -> sxsa.SqlAlchemyScheduler[sx.PeriodicSchedule]:
-    return sxsa.SqlAlchemyScheduler(sa_session_maker, schedule_type=sx.PeriodicSchedule)
+    return sa_scheduler_builder()
+
+
+@pytest.fixture
+def sa_transactional_scheduler_builder(
+    sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
+) -> Callable[..., sxsa.SqlAlchemyTransactionalScheduler[sx.PeriodicSchedule]]:
+    def builder(**kwargs: Any):
+        return sxsa.SqlAlchemyTransactionalScheduler(
+            sa_session_maker,
+            schedule_type=sx.PeriodicSchedule,
+            **kwargs,
+        )
+
+    return builder
 
 
 @pytest.fixture
 def sa_transactional_scheduler(
-    sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
+    sa_transactional_scheduler_builder: Callable[..., sxsa.SqlAlchemyTransactionalScheduler[sx.PeriodicSchedule]],
 ) -> sxsa.SqlAlchemyTransactionalScheduler[sx.PeriodicSchedule]:
-    return sxsa.SqlAlchemyTransactionalScheduler(sa_session_maker, schedule_type=sx.PeriodicSchedule)
+    return sa_transactional_scheduler_builder()
 
 
 @pytest.fixture
-async def sa_sfu_lock_manager(sa_db_engine: aiosa.AsyncEngine) -> AsyncFixture[sxsa.SqlAlchemySfuLockManager]:
-    yield sxsa.SqlAlchemySfuLockManager(sa_db_engine)
+async def sa_sfu_lock_manager_builder(sa_db_engine: aiosa.AsyncEngine) -> Callable[..., sxsa.SqlAlchemySfuLockManager]:
+    def builder(**kwargs: Any) -> sxsa.SqlAlchemySfuLockManager:
+        return sxsa.SqlAlchemySfuLockManager(sa_db_engine, **kwargs)
+
+    return builder
 
 
 @pytest.fixture
-async def sa_leasing_lock_manager(sa_db_engine: aiosa.AsyncEngine) -> AsyncFixture[sxsa.SqlAlchemyLeasingLockManager]:
-    yield sxsa.SqlAlchemyLeasingLockManager(sa_db_engine, period=dt.timedelta(seconds=1), identifier="lock-id")
+async def sa_sfu_lock_manager(
+    sa_sfu_lock_manager_builder: Callable[..., sxsa.SqlAlchemySfuLockManager],
+) -> sxsa.SqlAlchemySfuLockManager:
+    return sa_sfu_lock_manager_builder()
+
+
+@pytest.fixture
+async def sa_leasing_lock_manager_builder(
+    sa_db_engine: aiosa.AsyncEngine,
+) -> Callable[..., sxsa.SqlAlchemyLeasingLockManager]:
+    def builder(**kwargs) -> sxsa.SqlAlchemyLeasingLockManager:
+        return sxsa.SqlAlchemyLeasingLockManager(
+            sa_db_engine,
+            period=dt.timedelta(seconds=1),
+            identifier="lock-id",
+            **kwargs,
+        )
+
+    return builder
+
+
+@pytest.fixture
+async def sa_leasing_lock_manager(
+    sa_leasing_lock_manager_builder: Callable[..., sxsa.SqlAlchemyLeasingLockManager],
+) -> sxsa.SqlAlchemyLeasingLockManager:
+    return sa_leasing_lock_manager_builder()
 
 
 @pytest.fixture

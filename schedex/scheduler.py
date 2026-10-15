@@ -112,7 +112,7 @@ class Scheduler[SchT: Schedule]:
 
         if (run_at := job.schedule.next_run(now=now, prev=None, count=0)) is not None:
             job = StoredJob(
-                id=job.id or uuid.uuid4().hex,
+                id=job.id,
                 status=JobStatus.Active,
                 created_at=now,
                 run_at=run_at,

@@ -1,5 +1,6 @@
 import dataclasses as dc
 import datetime as dt
+import unittest.mock as mk
 
 import pytest
 import sqlalchemy.ext.asyncio as aiosa
@@ -28,7 +29,7 @@ async def test_sqlalchemy_sfu_job_lock_manager_no_upcoming_jobs(
     sa_job_storage: JobSqlAlchemyStorage,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    stored_job = stored_job_factory.build(run_at=now + dt.timedelta(microseconds=1))
+    stored_job = stored_job_factory.build(run_at=now + dt.timedelta(milliseconds=1))
     await sa_job_storage.insert(dc.asdict(stored_job))
 
     lock_mgr = SqlAlchemySfuLockManager(sa_db_engine)
@@ -44,7 +45,7 @@ async def test_sqlalchemy_sfu_job_lock_manager_job_order(
     sa_job_storage: JobSqlAlchemyStorage,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    stored_job = stored_job_factory.build(run_at=now + dt.timedelta(microseconds=1))
+    stored_job = stored_job_factory.build(run_at=now + dt.timedelta(milliseconds=1))
     await sa_job_storage.insert(dc.asdict(stored_job))
     expected_stored_job = stored_job_factory.build(run_at=now)
     await sa_job_storage.insert(dc.asdict(expected_stored_job))
@@ -173,7 +174,7 @@ async def test_sqlalchemy_sfu_job_lock_context_manager_exception(
     )
 
 
-async def test_sqlalchemy_sfu_job_lock_release_with_status(
+async def test_sqlalchemy_sfu_job_lock_release_with_error(
     stored_job_factory: type[StoredJobFactory],
     sa_db_engine: aiosa.AsyncEngine,
     sa_job_storage: JobSqlAlchemyStorage,
@@ -202,6 +203,53 @@ async def test_sqlalchemy_sfu_job_lock_release_with_status(
             acquired_until=None,
         ),
         1,
+    )
+
+
+async def test_sqlalchemy_leasing_job_lock_remove(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+) -> None:
+    stored_job = stored_job_factory.build()
+    await sa_job_storage.insert(dc.asdict(stored_job))
+
+    lock_mgr = SqlAlchemySfuLockManager(sa_db_engine)
+
+    lock, delay = await lock_mgr.lock_upcoming_job()
+    assert lock is not None
+    await lock.remove()
+    await sa_job_storage.assert_has_exactly({}, count=0)
+
+
+async def test_sqlalchemy_leasing_job_lock_complete(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+) -> None:
+    stored_job = stored_job_factory.build()
+    await sa_job_storage.insert(dc.asdict(stored_job))
+
+    lock_mgr = SqlAlchemySfuLockManager(sa_db_engine)
+
+    lock, delay = await lock_mgr.lock_upcoming_job()
+    assert lock is not None
+    await lock.complete()
+    await sa_job_storage.assert_has_exactly(
+        dict(
+            id=stored_job.id,
+            created_at=stored_job.created_at,
+            status=sx.JobStatus.Completed,
+            schedule=stored_job.schedule,
+            count=stored_job.count,
+            task_name=stored_job.task_name,
+            task_args=stored_job.task_args,
+            meta=stored_job.meta,
+            run_at=stored_job.run_at,
+            acquired_by=None,
+            acquired_until=None,
+        ),
+        count=1,
     )
 
 
@@ -278,6 +326,135 @@ async def test_sqlalchemy_sfu_job_lock_create_task(
     )
 
 
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_job_lock_manager_event_on_release(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+) -> None:
+    await sa_job_storage.insert(dc.asdict(stored_job_factory.build()))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_upcoming_job()
+    assert lock is not None
+    await lock.release(rollback=True)
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.JobReady,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_job_lock_manager_event_on_remove(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+) -> None:
+    await sa_job_storage.insert(dc.asdict(stored_job_factory.build()))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_upcoming_job()
+    assert lock is not None
+    await lock.remove()
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.JobCompleted,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_job_lock_manager_event_on_complete(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+) -> None:
+    await sa_job_storage.insert(dc.asdict(stored_job_factory.build()))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_upcoming_job()
+    assert lock is not None
+    await lock.complete()
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.JobCompleted,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_job_lock_manager_event_on_error(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+) -> None:
+    await sa_job_storage.insert(dc.asdict(stored_job_factory.build()))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_upcoming_job()
+    assert lock is not None
+    await lock.release_with_error()
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.JobCanceled,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+@pytest.mark.parametrize("next_run_at", [True, False])
+async def test_sfu_job_lock_manager_event_on_create_task(
+    stored_job_factory: type[StoredJobFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_job_storage: JobSqlAlchemyStorage,
+    next_run_at: bool,
+) -> None:
+    await sa_job_storage.insert(dc.asdict(stored_job_factory.build()))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_upcoming_job()
+    assert lock is not None
+    await lock.create_task(dt.datetime.now(dt.timezone.utc) if next_run_at else None)
+    await lock.release()
+    event_sender_mock.send.assert_has_calls(
+        [
+            mk.call(
+                sx.Event(
+                    kind=sx.EventKind.JobReady if next_run_at else sx.EventKind.JobCompleted,
+                    timestamp=dt.datetime.now(dt.timezone.utc),
+                    id=mk.ANY,
+                )
+            ),
+            mk.call(
+                sx.Event(
+                    kind=sx.EventKind.TaskReady,
+                    timestamp=dt.datetime.now(dt.timezone.utc),
+                    id=mk.ANY,
+                )
+            ),
+        ]
+    )
+
+
 async def test_sqlalchemy_sfu_task_lock_manager_no_tasks(sa_db_engine: aiosa.AsyncEngine) -> None:
     lock_mgr = SqlAlchemySfuLockManager(sa_db_engine)
 
@@ -292,7 +469,7 @@ async def test_sqlalchemy_sfu_job_lock_manager_no_upcoming_tasks(
     sa_task_storage: TaskSqlAlchemyStorage,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
-    stored_task = stored_task_factory.build(run_at=now + dt.timedelta(microseconds=1))
+    stored_task = stored_task_factory.build(run_at=now + dt.timedelta(milliseconds=1))
     await sa_task_storage.insert(dc.asdict(stored_task))
 
     lock_mgr = SqlAlchemySfuLockManager(sa_db_engine)
@@ -316,7 +493,7 @@ async def test_sqlalchemy_sfu_task_lock_manager_task_order(
         raise AssertionError("unreachable")
 
     now = dt.datetime.now(dt.timezone.utc)
-    task = task_factory.build(run_at=now + dt.timedelta(microseconds=1))
+    task = task_factory.build(run_at=now + dt.timedelta(milliseconds=1))
     await sa_task_storage.insert(dc.asdict(task))
     expected_task = task_factory.build(run_at=now)
     await sa_task_storage.insert(dc.asdict(expected_task))
@@ -484,4 +661,123 @@ async def test_sqlalchemy_sfu_task_lock_release_with_status(
             acquired_until=None,
         ),
         1,
+    )
+
+
+async def test_sqlalchemy_leasing_task_lock_remove(
+    stored_task_factory: type[StoredTaskFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_task_storage: TaskSqlAlchemyStorage,
+) -> None:
+    stored_task = stored_task_factory.pending().build()
+    await sa_task_storage.insert(dc.asdict(stored_task))
+
+    lock_mgr = SqlAlchemySfuLockManager(sa_db_engine)
+
+    lock, delay = await lock_mgr.lock_next_task()
+    assert lock is not None
+    await lock.remove()
+    await sa_task_storage.assert_has_exactly({}, 0)
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+@pytest.mark.parametrize("rollback", [True, False])
+async def test_sfu_task_lock_manager_event_on_release(
+    stored_task_factory: type[StoredTaskFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_task_storage: TaskSqlAlchemyStorage,
+    rollback: bool,
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    await sa_task_storage.insert(dc.asdict(stored_task_factory.pending().build(run_at=now)))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_next_task()
+    assert lock is not None
+
+    await lock.release(rollback=rollback)
+    if rollback:
+        event_sender_mock.send.assert_called_with(
+            sx.Event(
+                kind=sx.EventKind.TaskReady,
+                timestamp=dt.datetime.now(dt.timezone.utc),
+                id=mk.ANY,
+            )
+        )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_task_lock_manager_event_on_remove(
+    stored_task_factory: type[StoredTaskFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_task_storage: TaskSqlAlchemyStorage,
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    await sa_task_storage.insert(dc.asdict(stored_task_factory.pending().build(run_at=now)))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_next_task()
+    assert lock is not None
+
+    await lock.remove()
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.TaskSucceeded,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_task_lock_manager_event_on_error(
+    stored_task_factory: type[StoredTaskFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_task_storage: TaskSqlAlchemyStorage,
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    await sa_task_storage.insert(dc.asdict(stored_task_factory.pending().build(run_at=now)))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_next_task()
+    assert lock is not None
+
+    await lock.release_with_error()
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.TaskFailed,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_sfu_task_lock_manager_event_on_success(
+    stored_task_factory: type[StoredTaskFactory],
+    sa_db_engine: aiosa.AsyncEngine,
+    sa_task_storage: TaskSqlAlchemyStorage,
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    await sa_task_storage.insert(dc.asdict(stored_task_factory.pending().build(run_at=now)))
+
+    event_sender_mock = mk.MagicMock(spec=sx.EventSender)
+    lock_manager = SqlAlchemySfuLockManager(sa_db_engine, event_sender=event_sender_mock)
+
+    lock, delay = await lock_manager.lock_next_task()
+    assert lock is not None
+
+    await lock.succeed()
+    event_sender_mock.send.assert_called_with(
+        sx.Event(
+            kind=sx.EventKind.TaskSucceeded,
+            timestamp=dt.datetime.now(dt.timezone.utc),
+            id=mk.ANY,
+        )
     )
