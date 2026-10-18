@@ -222,6 +222,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
         async with self._client.start_session() as session:
             async with await session.start_transaction():
+                sequence_number = self.job.count
                 if next_run_at is None:
                     await self._update(session, status=sx.JobStatus.Completed)
                     self._emit_event(sx.Event(sx.EventKind.JobCompleted))
@@ -237,8 +238,8 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         id=task_id,
                         created_at=dt.datetime.now(tz=dt.timezone.utc),
                         status=sx.TaskStatus.Pending,
+                        sequence_number=sequence_number,
                         job_id=self._job["id"],
-                        sequence_number=self._job["count"],
                         task_name=self._job["task_name"],
                         task_args=self._job["task_args"],
                         meta=self._job["meta"],

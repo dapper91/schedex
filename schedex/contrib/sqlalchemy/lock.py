@@ -146,6 +146,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
     async def create_task(self, next_run_at: Optional[dt.datetime] = None) -> None:
         logger.debug("job %s spawning a task...", self._job.id)
 
+        sequence_number = self.job.count
         if next_run_at is None:
             await self._session.execute(
                 sa.update(tables.Job).values(status=sx.JobStatus.Completed).where(tables.Job.id == self._job.id)
@@ -165,8 +166,8 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
                 id=task_id,
                 created_at=dt.datetime.now(tz=dt.timezone.utc),
                 status=sx.TaskStatus.Pending,
+                sequence_number=sequence_number,
                 job_id=self._job.id,
-                sequence_number=self._job.count,
                 task_name=self._job.task_name,
                 task_args=self._job.task_args,
                 meta=self._job.meta,
@@ -266,13 +267,44 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         if exc_value is None:
             await self.succeed()
         elif isinstance(exc_value, aio.CancelledError):
-            await self.release(rollback=True)
+            await self._release(rollback=True)
         else:
             await self.release_with_error()
 
         return False
 
-    async def release(self, rollback: bool = False) -> None:
+    async def release(self) -> None:
+        await self._release(rollback=True)
+        logger.debug("task %s released", self._task.id)
+
+    async def release_with_error(self) -> None:
+        await self._session.execute(
+            sa.update(tables.Task)
+            .values(status=sx.TaskStatus.Error, attempts=self._task.attempts + 1)
+            .where(tables.Task.id == self._task.id)
+        )
+        self._emit_event(sx.Event(sx.EventKind.TaskFailed))
+
+        await self._release()
+        logger.debug("task %s released with error", self._task.id)
+
+    async def succeed(self) -> None:
+        await self._session.execute(
+            sa.update(tables.Task).values(status=sx.TaskStatus.Succeeded).where(tables.Task.id == self._task.id)
+        )
+        self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
+
+        await self._release()
+        logger.debug("task %s released as succeeded", self._task.id)
+
+    async def remove(self) -> None:
+        await self._session.execute(sa.delete(tables.Task).where(tables.Task.id == self._task.id))
+        self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
+
+        await self._release()
+        logger.debug("task %s removed", self._task.id)
+
+    async def _release(self, rollback: bool = False) -> None:
         self._session.expunge(self._task)
 
         try:
@@ -285,34 +317,6 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
             await self._session.close()
 
         await self._flush_events()
-        logger.debug("task %s released", self._task.id)
-
-    async def release_with_error(self) -> None:
-        await self._session.execute(
-            sa.update(tables.Task)
-            .values(status=sx.TaskStatus.Error, attempts=self._task.attempts + 1)
-            .where(tables.Task.id == self._task.id)
-        )
-        self._emit_event(sx.Event(sx.EventKind.TaskFailed))
-
-        await self.release()
-        logger.debug("task %s released with error", self._task.id)
-
-    async def succeed(self) -> None:
-        await self._session.execute(
-            sa.update(tables.Task).values(status=sx.TaskStatus.Succeeded).where(tables.Task.id == self._task.id)
-        )
-        self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
-
-        await self.release()
-        logger.debug("task %s released as succeeded", self._task.id)
-
-    async def remove(self) -> None:
-        await self._session.execute(sa.delete(tables.Task).where(tables.Task.id == self._task.id))
-        self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
-
-        await self.release()
-        logger.debug("task %s removed", self._task.id)
 
 
 class SqlAlchemySfuLockManager(sx.LockManager[SqlAlchemySfuJobLock, SqlAlchemySfuTaskLock]):
@@ -538,6 +542,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
         async with self._session_maker() as session:
             async with session.begin():
+                sequence_number = self.job.count
                 if next_run_at is None:
                     await self._update(session, status=sx.JobStatus.Completed)
                     self._emit_event(sx.Event(sx.EventKind.JobCompleted))
@@ -552,8 +557,8 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         id=task_id,
                         created_at=dt.datetime.now(tz=dt.timezone.utc),
                         status=sx.TaskStatus.Pending,
+                        sequence_number=sequence_number,
                         job_id=self._job.id,
-                        sequence_number=self._job.count,
                         task_name=self._job.task_name,
                         task_args=self._job.task_args,
                         meta=self._job.meta,

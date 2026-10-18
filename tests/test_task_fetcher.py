@@ -14,8 +14,8 @@ from tests.types import BaseStorage
     params=[
         pytest.param(
             (
-                lf("sa_job_storage"),
-                lf("sa_task_storage"),
+                lf("sa_leasing_job_storage"),
+                lf("sa_leasing_task_storage"),
                 lf("sa_leasing_lock_manager"),
             ),
             id="sqlalchemy-leasing",

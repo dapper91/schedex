@@ -20,7 +20,7 @@ class CustomException(Exception):
     params=[
         pytest.param(
             (
-                lf("sa_job_storage"),
+                lf("sa_leasing_job_storage"),
                 lf("sa_storage_transaction"),
                 lf("sa_scheduler_builder"),
                 lf("sa_transactional_scheduler_builder"),

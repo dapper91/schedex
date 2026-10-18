@@ -12,7 +12,13 @@ from schedex.contrib.sqlalchemy import tables
 from tests.sqlalchemy import utils
 from tests.types import AsyncFixture
 
-from .storage import JobSqlAlchemyStorage, SqlAlchemyStorageTransaction, TaskSqlAlchemyStorage
+from .storage import (
+    JobLeasingSqlAlchemyStorage,
+    JobSfuSqlAlchemyStorage,
+    SqlAlchemyStorageTransaction,
+    TaskLeasingSqlAlchemyStorage,
+    TaskSfuSqlAlchemyStorage,
+)
 
 SessionMaker = sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession]
 
@@ -112,8 +118,10 @@ def sa_transaction_manager(
 def sa_scheduler_builder(
     sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
 ) -> Callable[..., sxsa.SqlAlchemyScheduler[sx.PeriodicSchedule]]:
-    def builder(**kwargs: Any) -> sxsa.SqlAlchemyScheduler[sx.PeriodicSchedule]:
-        return sxsa.SqlAlchemyScheduler(sa_session_maker, schedule_type=sx.PeriodicSchedule, **kwargs)
+    def builder(**kwargs: Any) -> sxsa.SqlAlchemyScheduler[Any]:
+        kwargs.setdefault("schedule_type", sx.PeriodicSchedule)
+
+        return sxsa.SqlAlchemyScheduler(sa_session_maker, **kwargs)
 
     return builder
 
@@ -129,12 +137,10 @@ def sa_scheduler(
 def sa_transactional_scheduler_builder(
     sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
 ) -> Callable[..., sxsa.SqlAlchemyTransactionalScheduler[sx.PeriodicSchedule]]:
-    def builder(**kwargs: Any):
-        return sxsa.SqlAlchemyTransactionalScheduler(
-            sa_session_maker,
-            schedule_type=sx.PeriodicSchedule,
-            **kwargs,
-        )
+    def builder(**kwargs: Any) -> sxsa.SqlAlchemyTransactionalScheduler[Any]:
+        kwargs.setdefault("schedule_type", sx.PeriodicSchedule)
+
+        return sxsa.SqlAlchemyTransactionalScheduler(sa_session_maker, **kwargs)
 
     return builder
 
@@ -163,15 +169,15 @@ async def sa_sfu_lock_manager(
 
 @pytest.fixture
 async def sa_leasing_lock_manager_builder(
+    lock_id: str,
+    lock_period: dt.timedelta,
     sa_db_engine: aiosa.AsyncEngine,
 ) -> Callable[..., sxsa.SqlAlchemyLeasingLockManager]:
     def builder(**kwargs) -> sxsa.SqlAlchemyLeasingLockManager:
-        return sxsa.SqlAlchemyLeasingLockManager(
-            sa_db_engine,
-            period=dt.timedelta(seconds=1),
-            identifier="lock-id",
-            **kwargs,
-        )
+        kwargs.setdefault("period", lock_period)
+        kwargs.setdefault("identifier", lock_id)
+
+        return sxsa.SqlAlchemyLeasingLockManager(sa_db_engine, **kwargs)
 
     return builder
 
@@ -184,19 +190,39 @@ async def sa_leasing_lock_manager(
 
 
 @pytest.fixture
-async def sa_job_storage(
+async def sa_leasing_job_storage(
     sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
-) -> AsyncFixture[JobSqlAlchemyStorage]:
+    lock_id: str,
+    lock_period: dt.timedelta,
+) -> AsyncFixture[JobLeasingSqlAlchemyStorage]:
     async with sa_session_maker() as session:
-        yield JobSqlAlchemyStorage(session)
+        yield JobLeasingSqlAlchemyStorage(session, lock_id=lock_id, lock_period=lock_period)
 
 
 @pytest.fixture
-async def sa_task_storage(
+async def sa_leasing_task_storage(
     sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
-) -> AsyncFixture[TaskSqlAlchemyStorage]:
+    lock_id: str,
+    lock_period: dt.timedelta,
+) -> AsyncFixture[TaskLeasingSqlAlchemyStorage]:
     async with sa_session_maker() as session:
-        yield TaskSqlAlchemyStorage(session)
+        yield TaskLeasingSqlAlchemyStorage(session, lock_id=lock_id, lock_period=lock_period)
+
+
+@pytest.fixture
+async def sa_sfu_job_storage(
+    sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
+) -> AsyncFixture[JobSfuSqlAlchemyStorage]:
+    async with sa_session_maker() as session:
+        yield JobSfuSqlAlchemyStorage(session)
+
+
+@pytest.fixture
+async def sa_sfu_task_storage(
+    sa_session_maker: sa.ext.asyncio.async_sessionmaker[sa.ext.asyncio.AsyncSession],
+) -> AsyncFixture[TaskSfuSqlAlchemyStorage]:
+    async with sa_session_maker() as session:
+        yield TaskSfuSqlAlchemyStorage(session)
 
 
 @pytest.fixture

@@ -12,7 +12,7 @@ from tests.types import BaseStorage, StorageTransaction
     params=[
         pytest.param(
             (
-                lf("sa_job_storage"),
+                lf("sa_leasing_job_storage"),
                 lf("sa_storage_transaction"),
                 lf("sa_transaction_manager"),
             ),
