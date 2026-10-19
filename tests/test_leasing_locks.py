@@ -85,6 +85,7 @@ async def test_leasing_task_lock_lease_expired(
             run_at=stored_task.run_at,
             acquired_by=lock_id,
             acquired_until=now + lock_period,
+            executor_tag=None,
         ),
         1,
     )
@@ -123,6 +124,7 @@ async def test_leasing_task_lock_extend(
             run_at=stored_task.run_at,
             acquired_by=lock_id,
             acquired_until=now + lock_period,
+            executor_tag=None,
         ),
         1,
     )
@@ -150,6 +152,7 @@ async def test_leasing_task_lock_extend(
             run_at=stored_task.run_at,
             acquired_by=lock_id,
             acquired_until=now + lock_period,
+            executor_tag=None,
         ),
         1,
     )

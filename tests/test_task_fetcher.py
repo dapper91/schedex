@@ -181,6 +181,7 @@ async def test_task_fetcher_pending_job(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=now + dt.timedelta(minutes=1),
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),

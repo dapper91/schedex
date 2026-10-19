@@ -19,6 +19,7 @@ class StoredJobFactory(pf.factories.DataclassFactory[sx.StoredJob]):
     run_at = lambda: dt.datetime.now(tz=dt.timezone.utc)
     acquired_by = None
     acquired_until = None
+    executor_tag = None
 
 
 class StoredTaskFactory(pf.factories.DataclassFactory[sx.StoredTask]):
@@ -34,6 +35,7 @@ class StoredTaskFactory(pf.factories.DataclassFactory[sx.StoredTask]):
     run_at = lambda: dt.datetime.now(tz=dt.timezone.utc)
     acquired_by = None
     acquired_until = None
+    executor_tag = None
 
     @classmethod
     def pending(cls) -> type["StoredTaskFactory"]:
@@ -67,6 +69,7 @@ class JobFactory(pf.factories.DataclassFactory[sx.Job]):
     schedule = sx.PeriodicSchedule.after(delay=dt.timedelta(seconds=1))
     meta = {"key": "value"}
     task = JsonSerializableBoundTask(name="test_task", args=(), kwargs={})
+    executor_tag = None
 
 
 class TaskFactory(pf.factories.DataclassFactory[sx.Task]):

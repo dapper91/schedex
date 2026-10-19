@@ -3,7 +3,7 @@ import datetime as dt
 import logging
 import uuid
 from types import TracebackType
-from typing import Any, Optional, Self, cast
+from typing import Any, Iterable, Optional, Self, cast
 
 import sqlalchemy as sa
 import sqlalchemy.ext.asyncio as aiosa
@@ -32,6 +32,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         cls,
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         logger.debug("locking a job...")
 
@@ -44,6 +45,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
                 .with_for_update(skip_locked=True)
                 .where(
                     tables.Job.status == sx.JobStatus.Active,
+                    tables.Job.executor_tag.in_(executor_tags) if executor_tags else sa.true(),
                 )
                 .order_by(
                     tables.Job.run_at.asc(),
@@ -87,6 +89,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
             task_args=self._job.task_args,
             meta=self._job.meta,
             run_at=self._job.run_at,
+            executor_tag=self._job.executor_tag,
         )
 
     async def __aexit__(
@@ -172,6 +175,7 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
                 task_args=self._job.task_args,
                 meta=self._job.meta,
                 run_at=dt.datetime.now(tz=dt.timezone.utc),
+                executor_tag=self._job.executor_tag,
             )
         )
         self._emit_event(sx.Event(sx.EventKind.TaskReady))
@@ -198,6 +202,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         cls,
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         logger.debug("locking a task...")
 
@@ -210,6 +215,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 .with_for_update(skip_locked=True)
                 .where(
                     tables.Task.status.in_((sx.TaskStatus.Pending, sx.TaskStatus.Failed)),
+                    tables.Task.executor_tag.in_(executor_tags) if executor_tags else sa.true(),
                 )
                 .order_by(
                     tables.Task.run_at.asc(),
@@ -256,6 +262,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
             run_at=self._task.run_at,
             acquired_by=self._task.acquired_by,
             acquired_until=self._task.acquired_until,
+            executor_tag=self._task.executor_tag,
         )
 
     async def __aexit__(
@@ -324,15 +331,21 @@ class SqlAlchemySfuLockManager(sx.LockManager[SqlAlchemySfuJobLock, SqlAlchemySf
     SqlAlchemy select-for-update lock manager.
     """
 
-    def __init__(self, engine: aiosa.AsyncEngine, event_sender: Optional[sx.EventSender] = None):
+    def __init__(
+        self,
+        engine: aiosa.AsyncEngine,
+        event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
+    ):
         self._session_maker = aiosa.async_sessionmaker(engine)
         self._event_sender = event_sender
+        self._executor_tags = executor_tags
 
     async def lock_upcoming_job(self) -> tuple[Optional[SqlAlchemySfuJobLock], dt.timedelta]:
-        return await SqlAlchemySfuJobLock.try_lock(self._session_maker, self._event_sender)
+        return await SqlAlchemySfuJobLock.try_lock(self._session_maker, self._event_sender, self._executor_tags)
 
     async def lock_next_task(self) -> tuple[Optional[SqlAlchemySfuTaskLock], dt.timedelta]:
-        return await SqlAlchemySfuTaskLock.try_lock(self._session_maker, self._event_sender)
+        return await SqlAlchemySfuTaskLock.try_lock(self._session_maker, self._event_sender, self._executor_tags)
 
 
 class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
@@ -347,6 +360,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         period: dt.timedelta,
         identifier: str,
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
         Tries to lock the next job.
@@ -367,6 +381,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                                 sa.select(tables.Job, tables.Job.run_at.label("check_at"))
                                 .where(
                                     tables.Job.status == sx.JobStatus.Active,
+                                    tables.Job.executor_tag.in_(executor_tags) if executor_tags else sa.true(),
                                     tables.Job.acquired_by.is_(None),
                                     tables.Job.acquired_until.is_(None),
                                 )
@@ -379,6 +394,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                                 sa.select(tables.Job, tables.Job.acquired_until.label("check_at"))
                                 .where(
                                     tables.Job.status == sx.JobStatus.Active,
+                                    tables.Job.executor_tag.in_(executor_tags) if executor_tags else sa.true(),
                                     tables.Job.acquired_by.is_not(None),
                                     tables.Job.acquired_until.is_not(None),
                                 )
@@ -467,6 +483,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
             task_args=self._job.task_args,
             meta=self._job.meta,
             run_at=self._job.run_at,
+            executor_tag=self._job.executor_tag,
         )
 
     async def __aenter__(self) -> Self:
@@ -563,6 +580,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         task_args=self._job.task_args,
                         meta=self._job.meta,
                         run_at=dt.datetime.now(tz=dt.timezone.utc),
+                        executor_tag=self._job.executor_tag,
                     )
                 )
                 await session.flush()
@@ -608,6 +626,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         period: dt.timedelta,
         identifier: str,
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
         Tries to lock the next task.
@@ -628,6 +647,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                                 sa.select(tables.Task, tables.Task.run_at.label("check_at"))
                                 .where(
                                     tables.Task.status.in_((sx.TaskStatus.Pending, sx.TaskStatus.Failed)),
+                                    tables.Task.executor_tag.in_(executor_tags) if executor_tags else sa.true(),
                                     tables.Task.acquired_by.is_(None),
                                     tables.Task.acquired_until.is_(None),
                                 )
@@ -640,6 +660,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                                 sa.select(tables.Task, tables.Task.acquired_until.label("check_at"))
                                 .where(
                                     tables.Task.status == sx.TaskStatus.Executing,
+                                    tables.Task.executor_tag.in_(executor_tags) if executor_tags else sa.true(),
                                     tables.Task.acquired_by.is_not(None),
                                     tables.Task.acquired_until.is_not(None),
                                 )
@@ -731,6 +752,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             run_at=self._task.run_at,
             acquired_by=self._task.acquired_by,
             acquired_until=self._task.acquired_until,
+            executor_tag=self._task.executor_tag,
         )
 
     async def __aenter__(self) -> Self:
@@ -876,18 +898,28 @@ class SqlAlchemyLeasingLockManager(sx.LockManager[SqlAlchemyLeasingJobLock, SqlA
         period: dt.timedelta,
         identifier: str,
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ):
         self._session_maker = aiosa.async_sessionmaker(engine)
         self._event_sender = event_sender
         self._period = period
         self._identifier = identifier
+        self._executor_tags = executor_tags
 
     async def lock_upcoming_job(self) -> tuple[Optional[SqlAlchemyLeasingJobLock], dt.timedelta]:
         return await SqlAlchemyLeasingJobLock.try_lock(
-            self._session_maker, self._period, self._identifier, self._event_sender
+            self._session_maker,
+            self._period,
+            self._identifier,
+            self._event_sender,
+            self._executor_tags,
         )
 
     async def lock_next_task(self) -> tuple[Optional[SqlAlchemyLeasingTaskLock], dt.timedelta]:
         return await SqlAlchemyLeasingTaskLock.try_lock(
-            self._session_maker, self._period, self._identifier, self._event_sender
+            self._session_maker,
+            self._period,
+            self._identifier,
+            self._event_sender,
+            self._executor_tags,
         )

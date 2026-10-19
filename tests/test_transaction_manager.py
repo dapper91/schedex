@@ -84,6 +84,7 @@ async def test_owned_transaction_add_job_commit(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -133,6 +134,7 @@ async def test_multiple_owned_transactions_isolation(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -166,6 +168,7 @@ async def test_owned_transaction_add_job_context_manager_success(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -212,6 +215,7 @@ async def test_sqlalchemy_owned_transaction_remove_job_context_manager_success(
             run_at=stored_job.run_at,
             acquired_by=None,
             acquired_until=None,
+            executor_tag=None,
         )
     )
 
@@ -245,6 +249,7 @@ async def test_sqlalchemy_owned_transaction_remove_job_context_manager_error(
             run_at=stored_job.run_at,
             acquired_by=None,
             acquired_until=None,
+            executor_tag=None,
         )
     )
 
@@ -264,6 +269,7 @@ async def test_sqlalchemy_owned_transaction_remove_job_context_manager_error(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -295,6 +301,7 @@ async def test_sqlalchemy_transaction_add_job_commit(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),

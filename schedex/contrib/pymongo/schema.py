@@ -37,6 +37,8 @@ class Job(TypedDict):
     acquired_by: NotRequired[Optional[str]]
     # timestamp until the lock acquired the job
     acquired_until: NotRequired[Optional[dt.datetime]]
+    # tag of an executor the job is supposed to be executed on
+    executor_tag: Optional[str]
 
 
 async def create_jobs_schema(database: pmcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
@@ -101,6 +103,8 @@ class Task(TypedDict):
     acquired_by: NotRequired[Optional[str]]
     # timestamp until the lock acquired the task
     acquired_until: NotRequired[Optional[dt.datetime]]
+    # tag of an executor the task is supposed to be executed on
+    executor_tag: NotRequired[Optional[str]]
 
 
 async def create_tasks_schema(database: pmcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:

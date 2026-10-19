@@ -3,7 +3,7 @@ import datetime as dt
 import logging
 import uuid
 from types import TracebackType
-from typing import Any, Optional, Self, cast
+from typing import Any, Iterable, Optional, Self, cast
 
 import pymongo.asynchronous.client_session as pmses
 import pymongo.asynchronous.collection as pmcol
@@ -36,6 +36,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         period: dt.timedelta,
         identifier: str,
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
         Tries to lock the next job.
@@ -50,15 +51,15 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
             async with await session.start_transaction():
                 closest_jobs: list[tuple[dt.timedelta, Job]] = []
                 # finds the earliest unacquired job
-                job = await jobs.find_one(
-                    {
-                        "status": sx.JobStatus.Active,
-                        "acquired_by": None,
-                        "acquired_until": None,
-                    },
-                    sort=[("run_at", 1)],
-                )
-                if job is not None:
+                jobs_filter: dict[str, Any] = {
+                    "status": sx.JobStatus.Active,
+                    "acquired_by": None,
+                    "acquired_until": None,
+                }
+                if executor_tags is not None:
+                    jobs_filter["executor_tag"] = {"$in": executor_tags}
+
+                if (job := await jobs.find_one(jobs_filter, sort=[("run_at", 1)])) is not None:
                     delay = job["run_at"] - dt.datetime.now(tz=dt.timezone.utc)
                     closest_jobs.append((delay, job))
 
@@ -147,6 +148,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
             task_args=self._job["task_args"],
             meta=self._job["meta"],
             run_at=self._job["run_at"],
+            executor_tag=self._job["executor_tag"],
         )
 
     async def __aenter__(self) -> Self:
@@ -245,6 +247,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         meta=self._job["meta"],
                         run_at=dt.datetime.now(tz=dt.timezone.utc),
                         attempts=0,
+                        executor_tag=self._job.get("executor_tag"),
                     )
                 )
                 self._emit_event(sx.Event(sx.EventKind.TaskReady))
@@ -289,6 +292,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         period: dt.timedelta,
         identifier: str,
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
         Tries to lock the next task.
@@ -304,29 +308,29 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             async with await session.start_transaction():
                 closest_tasks: list[tuple[dt.timedelta, Task]] = []
                 # finds the earliest unacquired task
-                task = await tasks.find_one(
-                    {
-                        "status": {"$in": [sx.TaskStatus.Pending, sx.TaskStatus.Failed]},
-                        "acquired_by": None,
-                        "acquired_until": None,
-                    },
-                    sort=[("run_at", 1)],
-                )
-                if task is not None:
+                tasks_filter: dict[str, Any] = {
+                    "status": {"$in": [sx.TaskStatus.Pending, sx.TaskStatus.Failed]},
+                    "acquired_by": None,
+                    "acquired_until": None,
+                }
+                if executor_tags is not None:
+                    tasks_filter["executor_tag"] = {"$in": executor_tags}
+
+                if (task := await tasks.find_one(tasks_filter, sort=[("run_at", 1)])) is not None:
                     delay = task["run_at"] - dt.datetime.now(tz=dt.timezone.utc)
                     closest_tasks.append((delay, task))
 
                 # finds acquired task that may be released first
                 # in case the worker acquired it terminated without releasing
-                task = await tasks.find_one(
-                    {
-                        "status": sx.TaskStatus.Executing,
-                        "acquired_by": {"$ne": None},
-                        "acquired_until": {"$ne": None},
-                    },
-                    sort=[("acquired_until", 1)],
-                )
-                if task is not None:
+                tasks_filter = {
+                    "status": sx.TaskStatus.Executing,
+                    "acquired_by": {"$ne": None},
+                    "acquired_until": {"$ne": None},
+                }
+                if executor_tags is not None:
+                    tasks_filter["executor_tag"] = {"$in": executor_tags}
+
+                if (task := await tasks.find_one(tasks_filter, sort=[("acquired_until", 1)])) is not None:
                     assert task["acquired_until"] is not None
                     delay = task["acquired_until"] - dt.datetime.now(tz=dt.timezone.utc)
                     closest_tasks.append((delay, task))
@@ -404,6 +408,7 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             run_at=self._task["run_at"],
             acquired_by=self._task["acquired_by"],
             acquired_until=self._task["acquired_until"],
+            executor_tag=self._task["executor_tag"],
         )
 
     async def __aenter__(self) -> Self:
@@ -552,19 +557,31 @@ class PyMongoLeasingLockManager(sx.LockManager[PyMongoLeasingJobLock, PyMongoLea
         period: dt.timedelta,
         identifier: str,
         event_sender: Optional[sx.EventSender] = None,
+        executor_tags: Optional[Iterable[str]] = None,
     ):
         self._client = client
         self._dbname = dbname
         self._event_sender = event_sender
         self._period = period
         self._identifier = identifier
+        self._executor_tags = executor_tags
 
     async def lock_upcoming_job(self) -> tuple[Optional[PyMongoLeasingJobLock], dt.timedelta]:
         return await PyMongoLeasingJobLock.try_lock(
-            self._client, self._dbname, self._period, self._identifier, self._event_sender
+            self._client,
+            self._dbname,
+            self._period,
+            self._identifier,
+            self._event_sender,
+            self._executor_tags,
         )
 
     async def lock_next_task(self) -> tuple[Optional[PyMongoLeasingTaskLock], dt.timedelta]:
         return await PyMongoLeasingTaskLock.try_lock(
-            self._client, self._dbname, self._period, self._identifier, self._event_sender
+            self._client,
+            self._dbname,
+            self._period,
+            self._identifier,
+            self._event_sender,
+            self._executor_tags,
         )

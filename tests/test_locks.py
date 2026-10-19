@@ -2,7 +2,7 @@ import dataclasses as dc
 import datetime as dt
 import random as rnd
 import unittest.mock as mk
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import pytest
 from pytest_lazy_fixtures import lf
@@ -176,6 +176,7 @@ async def test_leasing_job_lock_release(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -220,6 +221,7 @@ async def test_leasing_job_lock_context_manager_success(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -252,6 +254,7 @@ async def test_leasing_job_lock_context_manager_exception(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -324,6 +327,7 @@ async def test_leasing_job_lock_complete(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=stored_job.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -346,7 +350,7 @@ async def test_leasing_job_lock_create_task(
     else:
         next_run_at = now + dt.timedelta(seconds=1)
 
-    stored_job = stored_job_factory.build()
+    stored_job = stored_job_factory.build(executor_tag="gpu")
     await job_storage.insert(dc.asdict(stored_job))
 
     lock, delay = await lock_manager.lock_upcoming_job()
@@ -366,6 +370,7 @@ async def test_leasing_job_lock_create_task(
                 task_args=stored_job.task_args,
                 meta=stored_job.meta,
                 run_at=now,
+                executor_tag="gpu",
                 acquired_by=None,
                 acquired_until=None,
             ),
@@ -383,6 +388,7 @@ async def test_leasing_job_lock_create_task(
                 task_args=stored_job.task_args,
                 meta=stored_job.meta,
                 run_at=next_run_at,
+                executor_tag="gpu",
                 acquired_by=None,
                 acquired_until=None,
             ),
@@ -401,6 +407,7 @@ async def test_leasing_job_lock_create_task(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=now,
+            executor_tag="gpu",
         ),
         1,
     )
@@ -643,6 +650,7 @@ async def test_leasing_task_lock_release(
             task_args=stored_task.task_args,
             meta=stored_task.meta,
             run_at=stored_task.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -685,6 +693,7 @@ async def test_leasing_task_lock_context_manager_success(
             task_args=stored_task.task_args,
             meta=stored_task.meta,
             run_at=stored_task.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -716,6 +725,7 @@ async def test_leasing_task_lock_context_manager_exception(
             task_args=stored_task.task_args,
             meta=stored_task.meta,
             run_at=stored_task.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -744,6 +754,7 @@ async def test_leasing_task_lock_release_with_status(
             task_args=stored_task.task_args,
             meta=stored_task.meta,
             run_at=stored_task.run_at,
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -859,3 +870,35 @@ async def test_leasing_task_lock_manager_event_on_success(
             id=mk.ANY,
         )
     )
+
+
+@pytest.mark.parametrize(
+    "executor_tags, task_executor_tag, locked",
+    [
+        (None, None, True),
+        (None, "gpu", True),
+        (["ssd", "gpu", "inet"], "gpu", True),
+        (["inet"], "gpu", False),
+    ],
+)
+async def test_leasing_task_lock_manager_task_executor_tag_filter(
+    stored_task_factory: type[StoredTaskFactory],
+    task_storage: BaseStorage,
+    lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    executor_tags: Optional[list[str]],
+    task_executor_tag: Optional[str],
+    locked: bool,
+) -> None:
+    stored_task = stored_task_factory.pending().build(executor_tag=task_executor_tag)
+    await task_storage.insert(dc.asdict(stored_task))
+
+    lock_manager = lock_manager_builder(executor_tags=executor_tags)
+
+    lock, delay = await lock_manager.lock_next_task()
+    if lock is not None:
+        await lock.release()
+
+    if locked:
+        assert lock is not None
+    else:
+        assert lock is None
