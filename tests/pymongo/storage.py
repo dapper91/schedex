@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, ClassVar, Mapping, Optional
 
 import pymongo.asynchronous.client_session as sess
@@ -12,8 +13,10 @@ class BasePyMongoStorage(BaseStorage):
     Document: ClassVar[type[Any]]
     Collection: ClassVar[str]
 
-    def __init__(self, session: sess.AsyncClientSession, database: str):
+    def __init__(self, session: sess.AsyncClientSession, database: str, lock_id: str, lock_period: dt.timedelta):
         self._session = session
+        self._lock_id = lock_id
+        self._lock_period = lock_period
         self._collection = session.client.get_database(database).get_collection(self.Collection)
 
     async def insert(self, fields: Mapping[str, Any]) -> None:
@@ -41,6 +44,14 @@ class BasePyMongoStorage(BaseStorage):
 
     async def assert_empty(self) -> None:
         await self.assert_has({}, 0)
+
+    async def assert_is_locked(self, filters: Mapping[str, Any]) -> None:
+        filters = dict(
+            filters,
+            acquired_by=self._lock_id,
+            acquired_until=dt.datetime.now(dt.timezone.utc) + self._lock_period,
+        )
+        await self.assert_has(filters)
 
 
 class JobPyMongoStorage(BasePyMongoStorage):

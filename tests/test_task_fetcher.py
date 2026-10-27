@@ -14,8 +14,8 @@ from tests.types import BaseStorage
     params=[
         pytest.param(
             (
-                lf("sa_job_storage"),
-                lf("sa_task_storage"),
+                lf("sa_leasing_job_storage"),
+                lf("sa_leasing_task_storage"),
                 lf("sa_leasing_lock_manager"),
             ),
             id="sqlalchemy-leasing",
@@ -181,6 +181,7 @@ async def test_task_fetcher_pending_job(
             task_args=stored_job.task_args,
             meta=stored_job.meta,
             run_at=now + dt.timedelta(minutes=1),
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),

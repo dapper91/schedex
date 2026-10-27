@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, ClassVar, Mapping, Optional
 
 import sqlalchemy as sa
@@ -51,11 +52,40 @@ class BaseSqlAlchemyStorage(BaseStorage):
         await self.assert_has({}, 0)
 
 
-class JobSqlAlchemyStorage(BaseSqlAlchemyStorage):
+class BaseLeasingSqlAlchemyStorage(BaseSqlAlchemyStorage):
+    def __init__(self, session: aiosa.AsyncSession, lock_id: str, lock_period: dt.timedelta):
+        super().__init__(session)
+        self._lock_id = lock_id
+        self.lock_period = lock_period
+
+    async def assert_is_locked(self, filters: Mapping[str, Any]) -> None:
+        filters = dict(
+            filters,
+            acquired_by=self._lock_id,
+            acquired_until=dt.datetime.now(dt.timezone.utc) + self.lock_period,
+        )
+        await self.assert_has(filters)
+
+
+class JobLeasingSqlAlchemyStorage(BaseLeasingSqlAlchemyStorage):
     Table = tb.Job
 
 
-class TaskSqlAlchemyStorage(BaseSqlAlchemyStorage):
+class TaskLeasingSqlAlchemyStorage(BaseLeasingSqlAlchemyStorage):
+    Table = tb.Task
+
+
+class BaseSfuSqlAlchemyStorage(BaseSqlAlchemyStorage):
+    async def assert_is_locked(self, filters: Mapping[str, Any]) -> None:
+        await self.assert_has(filters, skip_locked=True, count=0)
+        await self.assert_has(filters, skip_locked=False)
+
+
+class JobSfuSqlAlchemyStorage(BaseSfuSqlAlchemyStorage):
+    Table = tb.Job
+
+
+class TaskSfuSqlAlchemyStorage(BaseSfuSqlAlchemyStorage):
     Table = tb.Task
 
 

@@ -27,6 +27,10 @@ class BaseStorage(abc.ABC):
     async def assert_empty(self) -> None:
         pass
 
+    @abc.abstractmethod
+    async def assert_is_locked(self, filters: Mapping[str, Any]) -> None:
+        pass
+
 
 class StorageTransaction[Tx](abc.ABC):
     @abc.abstractmethod

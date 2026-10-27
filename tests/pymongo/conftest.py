@@ -67,15 +67,14 @@ def pymongo_transaction_manager(
 async def pymongo_lock_manager_builder(
     pymongo_database_client: mgcli.AsyncMongoClient[DocumentType],
     mongodb_dbname: str,
+    lock_id: str,
+    lock_period: dt.timedelta,
 ) -> Callable[..., sxpm.PyMongoLeasingLockManager]:
     def builder(**kwargs: Any) -> sxpm.PyMongoLeasingLockManager:
-        return sxpm.PyMongoLeasingLockManager(
-            pymongo_database_client,
-            dbname=mongodb_dbname,
-            period=dt.timedelta(seconds=1),
-            identifier="lock-id",
-            **kwargs,
-        )
+        kwargs.setdefault("identifier", lock_id)
+        kwargs.setdefault("period", lock_period)
+
+        return sxpm.PyMongoLeasingLockManager(pymongo_database_client, dbname=mongodb_dbname, **kwargs)
 
     return builder
 
@@ -92,13 +91,10 @@ def pymongo_scheduler_builder(
     pymongo_database_client: mgcli.AsyncMongoClient[DocumentType],
     mongodb_dbname: str,
 ) -> Callable[..., sxpm.PyMongoScheduler[sx.PeriodicSchedule]]:
-    def builder(**kwargs: Any) -> sxpm.PyMongoScheduler[sx.PeriodicSchedule]:
-        return sxpm.PyMongoScheduler(
-            pymongo_database_client,
-            schedule_type=sx.PeriodicSchedule,
-            dbname=mongodb_dbname,
-            **kwargs,
-        )
+    def builder(**kwargs: Any) -> sxpm.PyMongoScheduler[Any]:
+        kwargs.setdefault("schedule_type", sx.PeriodicSchedule)
+
+        return sxpm.PyMongoScheduler(pymongo_database_client, dbname=mongodb_dbname, **kwargs)
 
     return builder
 
@@ -115,13 +111,10 @@ def pymongo_transactional_scheduler_builder(
     pymongo_database_client: mgcli.AsyncMongoClient[DocumentType],
     mongodb_dbname: str,
 ) -> Callable[..., sxpm.PyMongoTransactionalScheduler[sx.PeriodicSchedule]]:
-    def builder(**kwargs: Any) -> sxpm.PyMongoTransactionalScheduler[sx.PeriodicSchedule]:
-        return sxpm.PyMongoTransactionalScheduler(
-            pymongo_database_client,
-            schedule_type=sx.PeriodicSchedule,
-            dbname=mongodb_dbname,
-            **kwargs,
-        )
+    def builder(**kwargs: Any) -> sxpm.PyMongoTransactionalScheduler[Any]:
+        kwargs.setdefault("schedule_type", sx.PeriodicSchedule)
+
+        return sxpm.PyMongoTransactionalScheduler(pymongo_database_client, dbname=mongodb_dbname, **kwargs)
 
     return builder
 
@@ -135,18 +128,24 @@ def pymongo_transactional_scheduler(
 
 @pytest.fixture
 async def pymongo_job_storage(
-    pymongo_database_client: mgcli.AsyncMongoClient[DocumentType], mongodb_dbname: str
+    pymongo_database_client: mgcli.AsyncMongoClient[DocumentType],
+    mongodb_dbname: str,
+    lock_id: str,
+    lock_period: dt.timedelta,
 ) -> AsyncFixture[JobPyMongoStorage]:
     async with pymongo_database_client.start_session() as session:
-        yield JobPyMongoStorage(session, mongodb_dbname)
+        yield JobPyMongoStorage(session, mongodb_dbname, lock_id=lock_id, lock_period=lock_period)
 
 
 @pytest.fixture
 async def pymongo_task_storage(
-    pymongo_database_client: mgcli.AsyncMongoClient[DocumentType], mongodb_dbname: str
+    pymongo_database_client: mgcli.AsyncMongoClient[DocumentType],
+    mongodb_dbname: str,
+    lock_id: str,
+    lock_period: dt.timedelta,
 ) -> AsyncFixture[TaskPyMongoStorage]:
     async with pymongo_database_client.start_session() as session:
-        yield TaskPyMongoStorage(session, mongodb_dbname)
+        yield TaskPyMongoStorage(session, mongodb_dbname, lock_id=lock_id, lock_period=lock_period)
 
 
 @pytest.fixture

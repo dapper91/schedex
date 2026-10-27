@@ -1,3 +1,7 @@
+import datetime as dt
+import random as rnd
+import uuid
+
 import pytest
 
 from tests.factories import StoredJobFactory, StoredTaskFactory
@@ -38,3 +42,13 @@ def stored_job_factory() -> Fixture[type[StoredJobFactory]]:
 @pytest.fixture(scope="session")
 def stored_task_factory() -> Fixture[type[StoredTaskFactory]]:
     yield StoredTaskFactory
+
+
+@pytest.fixture
+def lock_id() -> str:
+    return uuid.uuid4().hex
+
+
+@pytest.fixture
+def lock_period() -> dt.timedelta:
+    return dt.timedelta(seconds=rnd.randint(1, 100))

@@ -9,7 +9,7 @@ from .executor import (
     WorkerPool,
     WorkerPoolExecutor,
 )
-from .lock import EventManagerMixin, JobLock, Lock, LockManager, TaskLock
+from .lock import BreakTask, EventManagerMixin, JobLock, Lock, LockManager, TaskLock
 from .schedule import CombinedSchedule, PeriodicSchedule, Schedule
 from .scheduler import (
     Job,

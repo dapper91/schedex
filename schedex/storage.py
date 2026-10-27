@@ -43,6 +43,7 @@ class StoredJob:
     task_args: bytes
     meta: bytes
     run_at: dt.datetime
+    executor_tag: Optional[str]
 
 
 class JobManager(abc.ABC):
@@ -112,6 +113,7 @@ class StoredTask:
     run_at: dt.datetime
     acquired_by: Optional[str]
     acquired_until: Optional[dt.datetime]
+    executor_tag: Optional[str]
 
 
 class TaskManager(abc.ABC):

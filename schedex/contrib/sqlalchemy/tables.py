@@ -76,6 +76,8 @@ class Job(orm.MappedAsDataclass, BaseModel, kw_only=True):
     acquired_by: orm.Mapped[Optional[str]] = orm.mapped_column(sa.String(36), default=None)
     # timestamp until the lock acquired the job
     acquired_until: orm.Mapped[Optional[dt.datetime]] = orm.mapped_column(UniversalDateTime(), index=True, default=None)
+    # the tag of executor the job may be executed on
+    executor_tag: orm.Mapped[Optional[str]] = orm.mapped_column(sa.String(32), default=None)
 
 
 class Task(orm.MappedAsDataclass, BaseModel, kw_only=True):
@@ -111,3 +113,5 @@ class Task(orm.MappedAsDataclass, BaseModel, kw_only=True):
     acquired_by: orm.Mapped[Optional[str]] = orm.mapped_column(sa.String(36), default=None)
     # timestamp until the lock acquired the task
     acquired_until: orm.Mapped[Optional[dt.datetime]] = orm.mapped_column(UniversalDateTime(), index=True, default=None)
+    # the tag of executor the task may be executed on
+    executor_tag: orm.Mapped[Optional[str]] = orm.mapped_column(sa.String(32), default=None)

@@ -24,6 +24,7 @@ class SqlAlchemyStoredJobManager:
                 task_args=job_row.task_args,
                 meta=job_row.meta,
                 run_at=job_row.run_at,
+                executor_tag=job_row.executor_tag,
             )
         else:
             return None
@@ -40,6 +41,7 @@ class SqlAlchemyStoredJobManager:
                 task_args=job.task_args,
                 meta=job.meta,
                 run_at=job.run_at,
+                executor_tag=job.executor_tag,
             )
         )
         try:

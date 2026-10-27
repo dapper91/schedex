@@ -20,7 +20,7 @@ class CustomException(Exception):
     params=[
         pytest.param(
             (
-                lf("sa_job_storage"),
+                lf("sa_leasing_job_storage"),
                 lf("sa_storage_transaction"),
                 lf("sa_scheduler_builder"),
                 lf("sa_transactional_scheduler_builder"),
@@ -133,7 +133,7 @@ async def test_scheduler_add_job(
     job_storage: BaseStorage,
     scheduler: sx.Scheduler[sx.PeriodicSchedule],
 ) -> None:
-    job = JobFactory.build()
+    job = JobFactory.build(executor_tag="gpu")
     job_id = await scheduler.add_job(job)
 
     assert job_id == job.id
@@ -149,6 +149,7 @@ async def test_scheduler_add_job(
             task_args=job.task.serialize(),
             meta=msgspec.json.encode(job.meta),
             run_at=job.schedule.next_run(dt.datetime.now(dt.timezone.utc), None, 0),
+            executor_tag="gpu",
             acquired_by=None,
             acquired_until=None,
         ),
@@ -217,6 +218,7 @@ async def test_scheduler_get_job(
             run_at=job.schedule.next_run(dt.datetime.now(dt.timezone.utc), None, 0),
             acquired_by=None,
             acquired_until=None,
+            executor_tag=None,
         )
     )
 
@@ -234,7 +236,7 @@ async def test_transactional_scheduler_add_job_succeeded(
     job_storage: BaseStorage,
     transactional_scheduler: sx.TransactionalScheduler[Any, sx.PeriodicSchedule],
 ) -> None:
-    job = JobFactory.build()
+    job = JobFactory.build(executor_tag="gpu")
 
     async with transactional_scheduler.transactional() as tx:
         job_id = await tx.add_job(job)
@@ -252,6 +254,7 @@ async def test_transactional_scheduler_add_job_succeeded(
             task_args=job.task.serialize(),
             meta=msgspec.json.encode(job.meta),
             run_at=job.schedule.next_run(dt.datetime.now(dt.timezone.utc), None, 0),
+            executor_tag="gpu",
             acquired_by=None,
             acquired_until=None,
         ),
@@ -354,6 +357,7 @@ async def test_transactional_scheduler_outer_transaction_commit(
             task_args=job.task.serialize(),
             meta=msgspec.json.encode(job.meta),
             run_at=job.schedule.next_run(dt.datetime.now(dt.timezone.utc), None, 0),
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -415,6 +419,7 @@ async def test_scheduler_middleware(
             task_args=job.task.serialize(),
             meta=msgspec.json.encode(job.meta),
             run_at=job.schedule.next_run(dt.datetime.now(dt.timezone.utc), None, 0),
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),
@@ -459,6 +464,7 @@ async def test_transactional_scheduler_middleware(
             task_args=job.task.serialize(),
             meta=msgspec.json.encode(job.meta),
             run_at=job.schedule.next_run(dt.datetime.now(dt.timezone.utc), None, 0),
+            executor_tag=None,
             acquired_by=None,
             acquired_until=None,
         ),

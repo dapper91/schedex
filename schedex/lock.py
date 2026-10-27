@@ -2,10 +2,16 @@ import abc
 import contextlib as cl
 import datetime as dt
 from collections import deque
-from typing import Optional
+from typing import Never, Optional
 
 from schedex.eventbus import Event, EventSender
 from schedex.storage import StoredJob, StoredTask
+
+
+class BreakTask(BaseException):
+    """
+    Breaks the task execution without updating the status.
+    """
 
 
 class Lock(cl.AbstractAsyncContextManager["Lock"], abc.ABC):
@@ -82,6 +88,12 @@ class TaskLock(Lock, abc.ABC):
     async def succeed(self) -> None:
         """
         Changes the task status to Succeeded and releases the lock.
+        """
+
+    @abc.abstractmethod
+    async def postpone(self, delay: dt.timedelta) -> Never:
+        """
+        Postpones the task for a future execution.
         """
 
 

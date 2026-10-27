@@ -34,6 +34,7 @@ class PyMongoStoredJobManager:
                 task_args=job["task_args"],
                 meta=job["meta"],
                 run_at=job["run_at"],
+                executor_tag=job["executor_tag"],
             )
         else:
             return None
@@ -52,6 +53,7 @@ class PyMongoStoredJobManager:
                     task_args=job.task_args,
                     meta=job.meta,
                     run_at=job.run_at,
+                    executor_tag=job.executor_tag,
                 ),
                 session=session,
             )

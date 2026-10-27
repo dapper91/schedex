@@ -28,6 +28,7 @@ class JobData[SchT: Schedule]:
     schedule: SchT
     meta: Metadata = dc.field(default_factory=dict, kw_only=True)
     id: str = dc.field(default_factory=lambda: str(uuid.uuid4()), kw_only=True)
+    executor_tag: Optional[str] = dc.field(default=None, kw_only=True)
 
 
 @dc.dataclass
@@ -121,6 +122,7 @@ class Scheduler[SchT: Schedule]:
                 task_name=job.task.name,
                 task_args=job.task.serialize(),
                 meta=metadata_encoder.encode(job.meta),
+                executor_tag=job.executor_tag,
             )
             await self._job_manager.add_job(job)
             await self._send_event(EventKind.JobReady)
@@ -155,6 +157,7 @@ class Scheduler[SchT: Schedule]:
                 id=stored_job.id,
                 schedule=self._schedule_type.deserialize(stored_job.schedule),
                 meta=metadata_decoder.decode(stored_job.meta),
+                executor_tag=stored_job.executor_tag,
             )
 
         return None
