@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.3.0 (2026-10-27)
+
+### Features
+
+- Executor tags support added.
+  ([`6c7ce74`](https://github.com/dapper91/schedex/commit/6c7ce74732b2a8bba5cca7c354eeb0a936b24211))
+
+- Retry support added.
+  ([`b8e0a58`](https://github.com/dapper91/schedex/commit/b8e0a584f52d06560d90570b0274075ab465c06d))
+
+### Testing
+
+- New tests added.
+  ([`a7a122a`](https://github.com/dapper91/schedex/commit/a7a122afbb5201e78f8480bdda7310cfdb596af2))
+
+
 ## v0.2.1 (2026-10-02)
 
 ### Bug Fixes
