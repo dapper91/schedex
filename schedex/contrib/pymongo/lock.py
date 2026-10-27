@@ -3,13 +3,14 @@ import datetime as dt
 import logging
 import uuid
 from types import TracebackType
-from typing import Any, Iterable, Optional, Self, cast
+from typing import Any, Iterable, Never, Optional, Self, cast
 
 import pymongo.asynchronous.client_session as pmses
 import pymongo.asynchronous.collection as pmcol
 import pymongo.asynchronous.mongo_client as pmcli
 
 import schedex as sx
+from schedex.lock import BreakTask
 
 from . import utils
 from .schema import JOBS_COLLECTION, TASKS_COLLECTION, DocumentType, Job, Task
@@ -127,6 +128,7 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         self._job = job
         self._period = period
         self._identifier = identifier
+        self._released = False
 
     @property
     def period(self) -> dt.timedelta:
@@ -424,6 +426,8 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             await self.succeed()
         elif isinstance(exc_value, aio.CancelledError):
             await self.release()
+        elif isinstance(exc_value, BreakTask):
+            return True
         else:
             await self.release_with_error()
 
@@ -481,6 +485,20 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released as succeeded", self._task["id"])
 
         await self._flush_events()
+
+    async def postpone(self, delay: dt.timedelta) -> Never:
+        async with self._client.start_session() as session:
+            async with await session.start_transaction():
+                await self._update_and_release(
+                    session,
+                    status=sx.TaskStatus.Failed,
+                    attempts=self._task["attempts"] + 1,
+                    run_at=dt.datetime.now(tz=dt.timezone.utc) + delay,
+                )
+                self._emit_event(sx.Event(sx.EventKind.TaskFailed))
+
+        await self._flush_events()
+        raise BreakTask()
 
     async def is_locked(self) -> bool:
         return (remain := await self.remain()) is not None and remain > dt.timedelta(0)

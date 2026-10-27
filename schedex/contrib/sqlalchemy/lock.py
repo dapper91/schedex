@@ -3,13 +3,14 @@ import datetime as dt
 import logging
 import uuid
 from types import TracebackType
-from typing import Any, Iterable, Optional, Self, cast
+from typing import Any, Iterable, Never, Optional, Self, cast
 
 import sqlalchemy as sa
 import sqlalchemy.ext.asyncio as aiosa
 import sqlalchemy.orm
 
 import schedex as sx
+from schedex.lock import BreakTask
 
 from . import tables
 
@@ -246,6 +247,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
         self._session = session
         self._task = task
+        self._released = False
 
     @property
     def task(self) -> sx.StoredTask:
@@ -275,16 +277,24 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
             await self.succeed()
         elif isinstance(exc_value, aio.CancelledError):
             await self._release(rollback=True)
+        elif isinstance(exc_value, BreakTask):
+            if not self._released:
+                await self._release()
+            return True
         else:
             await self.release_with_error()
 
         return False
 
     async def release(self) -> None:
+        assert not self._released, "lock already released"
+
         await self._release(rollback=True)
         logger.debug("task %s released", self._task.id)
 
     async def release_with_error(self) -> None:
+        assert not self._released, "lock already released"
+
         await self._session.execute(
             sa.update(tables.Task)
             .values(status=sx.TaskStatus.Error, attempts=self._task.attempts + 1)
@@ -296,6 +306,8 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released with error", self._task.id)
 
     async def succeed(self) -> None:
+        assert not self._released, "lock already released"
+
         await self._session.execute(
             sa.update(tables.Task).values(status=sx.TaskStatus.Succeeded).where(tables.Task.id == self._task.id)
         )
@@ -305,11 +317,30 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released as succeeded", self._task.id)
 
     async def remove(self) -> None:
+        assert not self._released, "lock already released"
+
         await self._session.execute(sa.delete(tables.Task).where(tables.Task.id == self._task.id))
         self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
 
         await self._release()
         logger.debug("task %s removed", self._task.id)
+
+    async def postpone(self, delay: dt.timedelta) -> Never:
+        assert not self._released, "lock already released"
+
+        await self._session.execute(
+            sa.update(tables.Task)
+            .values(
+                status=sx.TaskStatus.Failed,
+                attempts=self._task.attempts + 1,
+                run_at=dt.datetime.now(tz=dt.timezone.utc) + delay,
+            )
+            .where(tables.Task.id == self._task.id)
+        )
+        self._emit_event(sx.Event(sx.EventKind.TaskFailed))
+
+        await self._release()
+        raise BreakTask()
 
     async def _release(self, rollback: bool = False) -> None:
         self._session.expunge(self._task)
@@ -322,6 +353,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 await self._session.commit()
         finally:
             await self._session.close()
+            self._released = True
 
         await self._flush_events()
 
@@ -768,6 +800,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             await self.succeed()
         elif isinstance(exc_value, aio.CancelledError):
             await self.release()
+        elif isinstance(exc_value, BreakTask):
+            return True
         else:
             await self.release_with_error()
 
@@ -824,6 +858,20 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released as succeeded", self._task.id)
 
         await self._flush_events()
+
+    async def postpone(self, delay: dt.timedelta) -> Never:
+        async with self._session_maker() as session:
+            async with session.begin():
+                await self._update_and_release(
+                    session,
+                    status=sx.TaskStatus.Failed,
+                    attempts=self._task.attempts + 1,
+                    run_at=dt.datetime.now(tz=dt.timezone.utc) + delay,
+                )
+                self._emit_event(sx.Event(sx.EventKind.TaskFailed))
+
+        await self._flush_events()
+        raise BreakTask()
 
     async def is_locked(self) -> bool:
         return (remain := await self.remain()) is not None and remain > dt.timedelta(0)

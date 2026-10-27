@@ -777,6 +777,40 @@ async def test_leasing_task_lock_remove(
 
 
 @pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
+async def test_leasing_task_lock_postpone(
+    stored_task_factory: type[StoredTaskFactory],
+    task_storage: BaseStorage,
+    lock_manager: sx.LockManager[Any, Any],
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+
+    stored_task = stored_task_factory.pending().build()
+    await task_storage.insert(dc.asdict(stored_task))
+
+    lock, delay = await lock_manager.lock_next_task()
+    assert lock is not None
+    with pytest.raises(sx.BreakTask):
+        await lock.postpone(delay=dt.timedelta(seconds=1))
+
+    await task_storage.assert_has_exactly(
+        dict(
+            created_at=stored_task.created_at,
+            status=sx.TaskStatus.Failed,
+            sequence_number=stored_task.sequence_number,
+            attempts=stored_task.attempts + 1,
+            task_name=stored_task.task_name,
+            task_args=stored_task.task_args,
+            meta=stored_task.meta,
+            run_at=now + dt.timedelta(seconds=1),
+            executor_tag=None,
+            acquired_by=None,
+            acquired_until=None,
+        ),
+        1,
+    )
+
+
+@pytest.mark.time_machine("2026-09-06 12:00 +0000", tick=False)
 async def test_leasing_task_lock_manager_event_on_release(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
