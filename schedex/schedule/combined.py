@@ -8,7 +8,7 @@ from .base import Schedule
 
 class CombinedSchedule(JsonSerializable, Schedule, tag="combined"):
     """
-    Scheduler that combines multiple schedules.
+    Schedule that combines multiple schedules.
     """
 
     schedules: tuple[Schedule, ...]

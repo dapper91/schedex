@@ -17,23 +17,33 @@ class param[R]:
 
 
 class first[R](param[R]):
-    pass
+    """
+    First `select` parameters result.
+    """
 
 
 class second[R](param[R]):
-    pass
+    """
+    Second `select` parameters result.
+    """
 
 
 class third[R](param[R]):
-    pass
+    """
+    Third `select` parameters result.
+    """
 
 
 class fourth[R](param[R]):
-    pass
+    """
+    Fourth `select` parameters result.
+    """
 
 
 class fifth[R](param[R]):
-    pass
+    """
+    Fifth `select` parameters result.
+    """
 
 
 type Selectable[R] = Union[aio.Future[R], Coroutine[None, None, R]]
@@ -88,6 +98,20 @@ async def select[R1, R2, R3, R4, R5](
 async def select(*selectable: Selectable[Any], cancel_pending: bool = True) -> Any:
     """
     Waits for the first coroutine to complete. The other coroutines are canceled.
+
+    :example:
+
+    >>> match await select(
+    >>>     stream.read(),
+    >>>     queue.get(),
+    >>>     event.wait(),
+    >>> ):
+    >>>     case first(data):
+    >>>         print(f"stream bytes received: {data}")
+    >>>     case second(queue_item):
+    >>>         print(f"queue item received: {queue_item}")
+    >>>     case third(_):
+    >>>         print(f"event set")
 
     :param selectable: awaitable objects to be waited
     :param cancel_pending: whether to cancel pending futures
