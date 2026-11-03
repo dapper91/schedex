@@ -12,6 +12,10 @@ AppState = MutableMapping[str, Any]
 
 
 class InjectedType:
+    """
+    DI injected type marker.
+    """
+
     def __getattribute__(self, item: Any) -> Never:
         raise AssertionError("argument is not injected")
 

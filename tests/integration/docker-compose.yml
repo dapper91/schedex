@@ -45,7 +45,7 @@ services:
       start_period: 5s
 
   mongodb:
-    image: mongo:8.3-noble
+    image: mongo:8.2.7-noble
     environment:
       MONGO_INITDB_DATABASE: "${DB_NAME}"
       MONGO_INITDB_ROOT_USERNAME: "${DB_USER}"
