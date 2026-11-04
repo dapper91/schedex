@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 class InMemoryEventReceiver(EventReceiver):
     """
     In-memory event receiver.
+
+    :param maxsize: internal queue max size
     """
 
     def __init__(self, maxsize: Optional[int] = None):
@@ -45,6 +47,8 @@ class InMemoryEventReceiver(EventReceiver):
 class InMemoryEventSender(EventSender):
     """
     In-memory event sender.
+
+    :param receiver: event receiver
     """
 
     def __init__(self, receiver: InMemoryEventReceiver):
@@ -58,7 +62,7 @@ def build(queue_maxsize: Optional[int] = None) -> tuple[InMemoryEventSender, InM
     """
     Builds in-memory event sender/receiver pair.
 
-    :param queue_maxsize: internal queue size
+    :param queue_maxsize: internal queue max size
     :return: bound sender/receiver pair
     """
 

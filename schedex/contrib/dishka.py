@@ -28,6 +28,8 @@ def inject[StT: AppState, **P, R](
 ) -> Callable[Concatenate[Context[StT, Any], P], R]:
     """
     Function decorator injecting dependencies into the function arguments.
+
+    :param func: function to inject parameters into
     """
 
     return wrap_injection(
@@ -47,6 +49,10 @@ async def request_container_middleware(
     """
     A middleware that initialize request-scoped di container.
     Works only with MutableMapping application state.
+
+    :param context: scheduler context
+    :param task: executed task
+    :param wrapped: wrapped function to be called
     """
 
     container: dishka.AsyncContainer = context.state[CONTAINER_KEY]

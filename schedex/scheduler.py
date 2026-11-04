@@ -23,6 +23,7 @@ class JobData[SchT: Schedule]:
     :param id: job identifier
     :param schedule: job schedule
     :param meta: job metadata
+    :param executor_tag: the tag of an executor the job will be executed on
     """
 
     schedule: SchT
@@ -40,6 +41,7 @@ class Job[SchT: Schedule](JobData[SchT]):
     :param schedule: job schedule
     :param task: job task
     :param meta: job metadata
+    :param executor_tag: the tag of an executor the job will be executed on
     """
 
     task: BoundTask

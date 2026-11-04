@@ -58,6 +58,8 @@ class SqlAlchemyStoredJobManager:
 class SqlAlchemyJobManager(SqlAlchemyStoredJobManager, sx.JobManager):
     """
     SqlAlchemy job manager.
+
+    :param session_maker: sqlalchemy session maker
     """
 
     def __init__(self, session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession]):
@@ -81,6 +83,8 @@ class SqlAlchemyJobManager(SqlAlchemyStoredJobManager, sx.JobManager):
 class SqlAlchemyOwnedTransaction(SqlAlchemyStoredJobManager, sx.OwnedTransaction[aiosa.AsyncSession]):
     """
     SqlAlchemy owned transaction.
+
+    :param session: sqlalchemy session
     """
 
     def __init__(self, session: aiosa.AsyncSession):
@@ -129,6 +133,8 @@ class SqlAlchemyOwnedTransaction(SqlAlchemyStoredJobManager, sx.OwnedTransaction
 class SqlAlchemyTransaction(SqlAlchemyStoredJobManager, sx.Transaction[aiosa.AsyncSession]):
     """
     SqlAlchemy transaction.
+
+    :param outer_tx: outer transaction
     """
 
     def __init__(self, outer_tx: aiosa.AsyncSession):
@@ -152,6 +158,8 @@ class SqlAlchemyTransaction(SqlAlchemyStoredJobManager, sx.Transaction[aiosa.Asy
 class SqlAlchemyTransactionManager(sx.TransactionManager[aiosa.AsyncSession]):
     """
     SqlAlchemy storage.
+
+    :param session_maker: sqlalchemy session maker
     """
 
     def __init__(self, session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession]):

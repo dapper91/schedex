@@ -4,7 +4,7 @@ import inspect
 from typing import AsyncGenerator, AsyncIterator
 
 
-async def wait_next[T](it: AsyncIterator[T]) -> T:
+async def _wait_next[T](it: AsyncIterator[T]) -> T:
     return await anext(it)
 
 
@@ -12,14 +12,22 @@ async def wait_next[T](it: AsyncIterator[T]) -> T:
 async def merge_iterators[T](
     *iterators: AsyncIterator[T], close_generators: bool = True
 ) -> AsyncGenerator[AsyncIterator[T], None]:
+    """
+    Merges iterators into a single iterator.
+
+    :param iterators: iterators to be merged
+    :param close_generators: if any of the iterators are generators - closes them to prevent resource leak
+    :return: merged iterator
+    """
+
     async def merge(iterators_list: list[AsyncIterator[T]]) -> AsyncGenerator[T, None]:
-        tasks = list(aio.create_task(wait_next(it)) for it in iterators_list)
+        tasks = list(aio.create_task(_wait_next(it)) for it in iterators_list)
         try:
             while True:
                 done_tasks, pending_tasks = await aio.wait(tasks, return_when=aio.FIRST_COMPLETED)
                 for task in done_tasks:
                     task_idx = tasks.index(task)
-                    tasks[task_idx] = aio.create_task(wait_next(iterators[task_idx]))
+                    tasks[task_idx] = aio.create_task(_wait_next(iterators[task_idx]))
                     yield await task
 
         finally:

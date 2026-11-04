@@ -13,6 +13,7 @@ from .lock import BreakTask, EventManagerMixin, JobLock, Lock, LockManager, Task
 from .schedule import CombinedSchedule, PeriodicSchedule, Schedule
 from .scheduler import (
     Job,
+    JobData,
     OwnedSchedulerTransaction,
     Scheduler,
     SchedulerMiddleware,
@@ -20,7 +21,7 @@ from .scheduler import (
     SchedulerTransaction,
     TransactionalScheduler,
 )
-from .serializer import Serializable
+from .serializer import MsgSpecSerializable, Serializable
 from .storage import (
     JobAlreadyExists,
     JobManager,
@@ -33,4 +34,4 @@ from .storage import (
     Transaction,
     TransactionManager,
 )
-from .task import BoundTask, Task, TaskRegistry
+from .task import BoundTask, SerializerBuilder, Task, TaskRegistry
