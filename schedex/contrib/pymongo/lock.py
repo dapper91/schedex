@@ -27,6 +27,13 @@ class LockFailedError(Exception):
 class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
     """
     PyMongo leasing job lock.
+
+    :param client: pymongo client
+    :param dbname: mongodb database name
+    :param job: locked job
+    :param period: lock period
+    :param identifier: locker identifier
+    :param event_sender: event sender
     """
 
     @classmethod
@@ -42,7 +49,14 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         """
         Tries to lock the next job.
 
-        :return: task lock or `None` if there is no task to lock.
+        :param client: pymongo client
+        :param dbname: mongodb database name
+        :param period: lock period
+        :param identifier: locker identifier
+        :param event_sender: event sender
+        :param executor_tags: executor tags
+        :return: locked job, delay pair where task is a locked task and delay indicates how much time
+                 to wait for a task to be available to lock
         """
 
         logger.debug("locking a job...")
@@ -284,6 +298,13 @@ class PyMongoLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
     """
     PyMongo leasing task lock.
+
+    :param client: pymongo client
+    :param dbname: mongodb database name
+    :param task: locked task
+    :param period: lock period
+    :param identifier: locker identifier
+    :param event_sender: event sender
     """
 
     @classmethod
@@ -299,7 +320,14 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         """
         Tries to lock the next task.
 
-        :return: task lock or `None` if there is no task to lock.
+        :param client: pymongo client
+        :param dbname: mongodb database name
+        :param period: lock period
+        :param identifier: locker identifier
+        :param event_sender: event sender
+        :param executor_tags: executor tags
+        :return: locked task, delay pair where task is a locked task and delay indicates how much time
+                 to wait for a task to be available to lock
         """
 
         logger.debug("locking a task...")
@@ -566,6 +594,7 @@ class PyMongoLeasingLockManager(sx.LockManager[PyMongoLeasingJobLock, PyMongoLea
     :param event_sender: scheduler event sender
     :param period: task lock period.
     :param identifier: lock identifier tasks will be acquired by.
+    :param executor_tags: executor tags
     """
 
     def __init__(

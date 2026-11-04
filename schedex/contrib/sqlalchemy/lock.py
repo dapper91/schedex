@@ -26,6 +26,10 @@ class LockFailedError(Exception):
 class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
     """
     SqlAlchemy select-for-update job lock.
+
+    :param session: sqlalchemy session
+    :param job: locked job
+    :param event_sender: event sender
     """
 
     @classmethod
@@ -35,6 +39,16 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
+        """
+        Tries to lock a job.
+
+        :param session_maker: sqlalchemy session maker
+        :param event_sender: event sender
+        :param executor_tags: executor tags
+        :return: locked job, delay pair where task is a locked task and delay indicates how much time
+                 to wait for a job to be available to lock
+        """
+
         logger.debug("locking a job...")
 
         session = session_maker()
@@ -196,6 +210,10 @@ class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
 class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
     """
     SqlAlchemy select-for-update task lock.
+
+    :param session: sqlalchemy session
+    :param task: locked task
+    :param event_sender: event sender
     """
 
     @classmethod
@@ -205,6 +223,16 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
+        """
+        Tries to lock a task.
+
+        :param session_maker: sqlalchemy session maker
+        :param event_sender: event sender
+        :param executor_tags: executor tags
+        :return: locked task, delay pair where task is a locked task and delay indicates how much time
+                 to wait for a task to be available to lock
+        """
+
         logger.debug("locking a task...")
 
         session = session_maker()
@@ -361,6 +389,10 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
 class SqlAlchemySfuLockManager(sx.LockManager[SqlAlchemySfuJobLock, SqlAlchemySfuTaskLock]):
     """
     SqlAlchemy select-for-update lock manager.
+
+    :param engine: sqlalchemy engine
+    :param event_sender: event sender
+    :param executor_tags: executor tags
     """
 
     def __init__(
@@ -383,6 +415,12 @@ class SqlAlchemySfuLockManager(sx.LockManager[SqlAlchemySfuJobLock, SqlAlchemySf
 class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
     """
     SqlAlchemy leasing job lock.
+
+    :param session_maker: sqlalchemy session maker
+    :param job: locked job
+    :param period: lock period
+    :param identifier: locker identifier
+    :param event_sender: event sender
     """
 
     @classmethod
@@ -395,9 +433,15 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
-        Tries to lock the next job.
+        Tries to lock a job.
 
-        :return: task lock or `None` if there is no task to lock.
+        :param session_maker: sqlalchemy session maker
+        :param period: lock period
+        :param identifier: locker identifier
+        :param event_sender: event sender
+        :param executor_tags: executor tags
+        :return: locked job, delay pair where task is a locked task and delay indicates how much time
+                 to wait for a job to be available to lock
         """
 
         logger.debug("locking a job...")
@@ -649,6 +693,12 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
     """
     SqlAlchemy leasing task lock.
+
+    :param session_maker: sqlalchemy session maker
+    :param task: locked task
+    :param period: lock period
+    :param identifier: locker identifier
+    :param event_sender: event sender
     """
 
     @classmethod
@@ -661,9 +711,15 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
-        Tries to lock the next task.
+        Tries to lock a task.
 
-        :return: task lock or `None` if there is no task to lock.
+        :param session_maker: sqlalchemy session maker
+        :param period: lock period
+        :param identifier: locker identifier
+        :param event_sender: event sender
+        :param executor_tags: executor tags
+        :return: locked task, delay pair where task is a locked task and delay indicates how much time
+                 to wait for a task to be available to lock
         """
 
         logger.debug("locking a task...")
@@ -934,10 +990,12 @@ class SqlAlchemyLeasingLockManager(sx.LockManager[SqlAlchemyLeasingJobLock, SqlA
     """
     SqlAlchemy leasing lock manager.
 
-    :param engine: SQLAlchemy engine instance.
+    :param engine: SQLAlchemy engine instance
+    :param period: task lock period
+    :param identifier: lock identifier
     :param event_sender: scheduler event sender
-    :param period: task lock period.
-    :param identifier: lock identifier tasks will be acquired by.
+    :param identifier: lock identifier tasks will be acquired by
+    :param executor_tags: executor tags
     """
 
     def __init__(

@@ -146,6 +146,13 @@ async def create_tasks_schema(database: pmcli.database.AsyncDatabase[DocumentTyp
 
 
 async def create_schema(database: pmcli.database.AsyncDatabase[DocumentType], validate: bool = True) -> None:
+    """
+    Creates mongodb database schema.
+
+    :param database: pymongo database
+    :param validate: validate inserted documents against schema
+    """
+
     await create_jobs_schema(database, validate)
     await create_tasks_schema(database, validate)
 

@@ -70,6 +70,9 @@ class PyMongoStoredJobManager:
 class PyMongoJobManager(PyMongoStoredJobManager, sx.JobManager):
     """
     PyMongo job manager.
+
+    :param client: pymongo client
+    :param dbname: mongodb database name
     """
 
     def __init__(self, client: pmcli.AsyncMongoClient[DocumentType], dbname: Optional[str]):
@@ -92,6 +95,9 @@ class PyMongoJobManager(PyMongoStoredJobManager, sx.JobManager):
 class PyMongoOwnedTransaction(PyMongoStoredJobManager, sx.OwnedTransaction[pmses.AsyncClientSession]):
     """
     PyMongo owned transaction.
+
+    :param session: pymongo session
+    :param dbname: mongodb database name
     """
 
     def __init__(self, session: pmses.AsyncClientSession, dbname: Optional[str]):
@@ -141,6 +147,9 @@ class PyMongoOwnedTransaction(PyMongoStoredJobManager, sx.OwnedTransaction[pmses
 class PyMongoTransaction(PyMongoStoredJobManager, sx.Transaction[pmses.AsyncClientSession]):
     """
     PyMongo transaction.
+
+    :param outer_tx: outer pymongo transaction
+    :param dbname: mongodb database name
     """
 
     def __init__(self, outer_tx: pmses.AsyncClientSession, dbname: Optional[str]):
@@ -165,6 +174,9 @@ class PyMongoTransaction(PyMongoStoredJobManager, sx.Transaction[pmses.AsyncClie
 class PyMongoTransactionManager(sx.TransactionManager[pmses.AsyncClientSession]):
     """
     PyMongo storage.
+
+    :param client: pymongo client
+    :param dbname: mongodb database name
     """
 
     def __init__(self, client: pmcli.AsyncMongoClient[DocumentType], dbname: Optional[str] = None):

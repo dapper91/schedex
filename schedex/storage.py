@@ -32,6 +32,17 @@ class JobStatus(enum.IntEnum):
 class StoredJob:
     """
     Stored job data.
+
+    :param id: job identifier.
+    :param created_at: job creation time.
+    :param status: job status.
+    :param schedule: job schedule.
+    :param count: job execution count.
+    :param task_name: job task name.
+    :param task_args: job task args.
+    :param meta: job metadata.
+    :param run_at: job next run time.
+    :param executor_tag: the tag of an executor the job will be executed on
     """
 
     id: str
@@ -99,6 +110,20 @@ class TaskStatus(enum.IntEnum):
 class StoredTask:
     """
     Stored task data.
+
+    :param id: task identifier
+    :param job_id: job identifier the task spawned from
+    :param sequence_number: task sequence number within the job spawned it
+    :param created_at: task creation time
+    :param status: task status
+    :param attempts: task execution attempts
+    :param task_name: task name
+    :param task_args: task args
+    :param meta: task metadata
+    :param run_at: task next run time
+    :param acquired_by: worker identifier that acquired the task
+    :param acquired_until: timestamp until which the worker acquired the task
+    :param executor_tag: the tag of an executor the task will be executed on
     """
 
     id: str

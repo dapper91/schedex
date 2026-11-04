@@ -95,6 +95,7 @@ class BufferedEventSender(EventSender):
     :param buffer_size: internal queue max size
     :param background_sender: start background sender
     :param retry_policy: retry policy for background event sender
+    :param graceful_timeout: timeout to wait for internal tasks to finish
     """
 
     def __init__(

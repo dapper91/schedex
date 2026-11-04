@@ -46,6 +46,7 @@ class SqlAlchemyScheduler[SchT: sx.Schedule](sx.Scheduler[SchT]):
     :param session_maker: sqlalchemy session maker
     :param event_sender: event sender
     :param schedule_type: schedule type
+    :param middlewares: scheduler middlewares
     """
 
     def __init__(
@@ -67,6 +68,8 @@ class SqlAlchemyTransactionalScheduler[SchT: sx.Schedule](sx.TransactionalSchedu
     :param session_maker: sqlalchemy session maker
     :param event_sender: event sender
     :param schedule_type: schedule type
+    :param middlewares: scheduler middlewares
+    :param graceful_timeout: timeout to wait for internal tasks to finish
     """
 
     def __init__(
@@ -110,6 +113,11 @@ class SqlAlchemyTransactionalScheduler[SchT: sx.Schedule](sx.TransactionalSchedu
         return False
 
     async def shutdown(self, graceful_timeout: float = 0) -> None:
+        """
+        Shuts down the scheduler.
+
+        :param graceful_timeout: timeout to wait for internal tasks to finish
+        """
         if event_sender := self._buffered_event_sender:
             await event_sender.shutdown(graceful_timeout)
 

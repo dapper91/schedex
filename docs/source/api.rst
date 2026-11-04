@@ -8,6 +8,7 @@ Scheduler
 .. currentmodule:: schedex
 
 .. autoclass:: Job
+.. autoclass:: JobData
 .. autoclass:: Context
 .. autoclass:: TaskInfo
 
@@ -16,15 +17,21 @@ Scheduler
 .. autoclass:: SchedulerMiddlewareWrappedFunc
 
 .. autoclass:: TransactionalScheduler
-.. autoclass:: TransactionManager
-.. autoclass:: OwnedTransaction
-.. autoclass:: Transaction
+.. autoclass:: SchedulerTransaction
+.. autoclass:: OwnedSchedulerTransaction
 
 .. autoclass:: TaskRegistry
 .. autoclass:: Task
 .. autoclass:: BoundTask
 
 .. autoclass:: Serializable
+.. autoclass:: SerializerBuilder
+.. autoclass:: MsgSpecSerializable
+
+
+.. currentmodule:: schedex.serializer.json
+
+.. autoclass:: JsonSerializable
 
 
 Schedule
@@ -35,6 +42,11 @@ Schedule
 .. autoclass:: Schedule
 .. autoclass:: CombinedSchedule
 .. autoclass:: PeriodicSchedule
+
+
+.. currentmodule:: schedex.schedule.cron
+
+.. autoclass:: CronSchedule
 
 
 Eventbus
@@ -69,6 +81,7 @@ Locks
 .. autoclass:: Lock
 .. autoclass:: JobLock
 .. autoclass:: TaskLock
+.. autoclass:: BreakTask
 
 
 Storage
@@ -82,6 +95,10 @@ Storage
 .. autoclass:: TaskManager
 .. autoclass:: TaskStatus
 .. autoclass:: StoredTask
+.. autoclass:: TransactionManager
+.. autoclass:: OwnedTransaction
+.. autoclass:: Transaction
+.. autoclass:: JobAlreadyExists
 
 
 
@@ -117,6 +134,30 @@ SqlAlchemy
 .. autoclass:: SqlAlchemyLeasingTaskLock
 
 
+PyMongo
+~~~~~~~
+
+.. currentmodule:: schedex.contrib.pymongo
+
+.. autoclass:: PyMongoScheduler
+.. autoclass:: PyMongoTransactionalScheduler
+
+.. autoclass:: PyMongoTransactionManager
+.. autoclass:: PyMongoTransaction
+.. autoclass:: PyMongoOwnedTransaction
+
+.. autoclass:: PyMongoLeasingLockManager
+.. autoclass:: PyMongoLeasingJobLock
+.. autoclass:: PyMongoLeasingTaskLock
+
+.. autoclass:: PyMongoEventReceiver
+.. autoclass:: PyMongoJobManager
+.. autoclass:: LockFailedError
+.. autoclass:: Job
+.. autoclass:: Task
+.. autofunction:: create_schema
+
+
 Opentelemetry
 ~~~~~~~~~~~~~
 
@@ -135,3 +176,32 @@ Dishka
 
 .. autofunction:: inject
 .. autofunction:: request_container_middleware
+
+
+Error guard
+~~~~~~~~~~~
+
+.. currentmodule:: schedex.guard
+
+.. autofunction:: constant_delay
+.. autofunction:: exponential_delay
+.. autoclass:: GuardExhausted
+.. autoclass:: ErrorGuard
+
+
+Runtime
+~~~~~~~
+
+.. currentmodule:: schedex.runtime
+
+.. autofunction:: select
+.. autoclass:: first
+.. autoclass:: second
+.. autoclass:: third
+.. autoclass:: fourth
+.. autoclass:: fifth
+
+
+.. currentmodule:: schedex.runtime.iterator
+
+.. autofunction:: merge_iterators

@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 class Worker:
     """
     Pool worker.
+
+    :param pool: a reference to the worker pool
     """
 
     def __init__(self, pool: "WorkerPool"):
@@ -70,6 +72,9 @@ class Worker:
 class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
     """
     A pool of limited number of workers. On distraction waits until all the workers finished their job.
+
+    :param max_workers: maximum number of workers
+    :param shutdown_timeout: timeout during which the pool waits for workers to finish before cancelling them
     """
 
     def __init__(self, max_workers: int, shutdown_timeout: float = 60.0):
@@ -80,6 +85,10 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
 
     @property
     def size(self) -> int:
+        """
+        Worker pool size.
+        """
+
         return len(self._workers)
 
     @property
@@ -167,6 +176,18 @@ class ExecutorMiddleware[CtxT](Protocol):
 class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
     """
     Worker pool executor.
+
+    :param state: sharable application state
+    :param max_workers: maximum number of workers
+    :param polling_interval: task polling interval
+    :param schedule_type: schedule type the executor will work with
+    :param task_registry: registry of tasks the worker will execute
+    :param lock_manager: lock manager used to lock tasks during execution
+    :param event_sender: event sender
+    :param event_receiver: event receiver
+    :param middlewares: executor middlewares
+    :param shutdown_timeout: timeout during which the executor waits for workers to finish before cancelling them
+    :param retry_policy: error handling retry policy
     """
 
     def __init__(
