@@ -175,6 +175,7 @@ async def sa_leasing_lock_manager_builder(
 ) -> Callable[..., sxsa.SqlAlchemyLeasingLockManager]:
     def builder(**kwargs) -> sxsa.SqlAlchemyLeasingLockManager:
         kwargs.setdefault("period", lock_period)
+        kwargs.setdefault("autoextend", False)
 
         return sxsa.SqlAlchemyLeasingLockManager(sa_db_engine, **kwargs)
 

@@ -233,7 +233,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
         middlewares: Iterable[ExecutorMiddleware[Context[StT, TlkT]]] = (),
         shutdown_timeout: float = 60.0,
         retry_policy: Optional[RetryPolicy] = None,
-        worker_id_gen: Optional[str] = None,
+        worker_id_gen: Optional[Callable[[], str]] = None,
     ) -> None:
         self._state = state
         self._polling_interval = polling_interval
@@ -242,8 +242,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
             maximum=dt.timedelta(seconds=30),
             factor=1.5,
         )
-        self._worker_id_gen = worker_id_gen
-        self._worker_pool = WorkerPool(max_workers, shutdown_timeout=shutdown_timeout)
+        self._worker_pool = WorkerPool(max_workers, shutdown_timeout=shutdown_timeout, worker_id_gen=worker_id_gen)
         self._task_fetcher = TaskFetcher(polling_interval, lock_manager, schedule_type)
         self._task_registry = task_registry
         self._event_sender = event_sender
@@ -266,11 +265,11 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
             await self._event_sender.send(Event(EventKind.NodeJoined))
 
         with cl.suppress(aio.CancelledError):
-            async with aio.TaskGroup() as tasks:
+            async with aio.TaskGroup() as services:
                 task_changed_event = aio.Event()
-                tasks.create_task(self._process_tasks(self._task_fetcher, task_changed_event))
+                services.create_task(self._process_tasks(self._task_fetcher, task_changed_event))
                 if self._event_receiver:
-                    tasks.create_task(self._process_events(self._event_receiver, task_changed_event))
+                    services.create_task(self._process_events(self._event_receiver, task_changed_event))
 
         if self._event_sender:
             await self._event_sender.send(Event(EventKind.NodeLeft))

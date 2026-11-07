@@ -11,6 +11,7 @@ import pymongo.asynchronous.collection as pmcol
 import pymongo.asynchronous.mongo_client as pmcli
 
 import schedex as sx
+from schedex.guard import RetryPolicy
 from schedex.lock import BreakTask, LockFailedError
 
 from . import utils
@@ -296,7 +297,10 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
     :param task: locked task
     :param period: lock period
     :param locker: locker identifier
+    :param autoextend: extend lock automatically
+    :param autoextend_after: period after which the lock is automatically extended
     :param event_sender: event sender
+    :param retry_policy: auto-extender retry policy, if autoextend is `False` argument is ignored
     """
 
     @classmethod
@@ -306,8 +310,11 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
         dbname: Optional[str],
         period: dt.timedelta,
         locker: str,
+        autoextend: bool = True,
+        autoextend_after: Optional[dt.timedelta] = None,
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
         Tries to lock the next task.
@@ -316,10 +323,13 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
         :param dbname: mongodb database name
         :param period: lock period
         :param locker: locker identifier
+        :param autoextend: extend lock automatically
+        :param autoextend_after: period after which the lock is automatically extended
         :param event_sender: event sender
         :param executor_tags: executor tags
         :return: locked task, delay pair where task is a locked task and delay indicates how much time
                  to wait for a task to be available to lock
+        :param retry_policy: auto-extender retry policy, if autoextend is `False` argument is ignored
         """
 
         logger.debug("locking a task...")
@@ -377,7 +387,17 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
                         )
                         if result.modified_count:
                             logger.debug("task %s locked", task["id"])
-                            lock = cls(client, dbname, task, period, locker, event_sender)
+                            lock = cls(
+                                client,
+                                dbname,
+                                task,
+                                period,
+                                locker,
+                                autoextend,
+                                autoextend_after,
+                                event_sender,
+                                retry_policy,
+                            )
                             return lock, dt.timedelta(0)
                         else:
                             logger.debug("task acquired by another worker")
@@ -398,10 +418,13 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
         task: Task,
         period: dt.timedelta,
         locker: str,
+        autoextend: bool = True,
+        autoextend_after: Optional[dt.timedelta] = None,
         event_sender: Optional[sx.EventSender] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ):
         sx.EventManagerMixin.__init__(self, event_sender)
-        sx.LeasingTaskLock.__init__(self, period, locker)
+        sx.LeasingTaskLock.__init__(self, period, locker, autoextend, autoextend_after, retry_policy)
 
         self._client = client
         self._dbname = dbname
@@ -550,6 +573,8 @@ class PyMongoLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
                     },
                 )
 
+        self._acquired_at = dt.datetime.now(tz=dt.timezone.utc)
+
         logger.debug("task %s lock extended by %s", self._task["id"], period)
 
         return bool(result.modified_count)
@@ -576,8 +601,11 @@ class PyMongoLeasingLockManager(sx.LockManager[PyMongoLeasingJobLock, PyMongoLea
     :param client: PyMongo client
     :param dbname: database name
     :param period: task lock period
+    :param autoextend: extend lock automatically
+    :param autoextend_after: period after which the lock is automatically extended
     :param event_sender: scheduler event sender
     :param executor_tags: executor tags
+    :param retry_policy: auto-extender retry policy, if autoextend is `False` argument is ignored
     """
 
     def __init__(
@@ -585,14 +613,20 @@ class PyMongoLeasingLockManager(sx.LockManager[PyMongoLeasingJobLock, PyMongoLea
         client: pmcli.AsyncMongoClient[DocumentType],
         dbname: Optional[str],
         period: dt.timedelta,
+        autoextend: bool = True,
+        autoextend_after: Optional[dt.timedelta] = None,
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ):
         self._client = client
         self._dbname = dbname
         self._event_sender = event_sender
         self._period = period
+        self._autoextend = autoextend
+        self._autoextend_after = autoextend_after
         self._executor_tags = executor_tags
+        self._retry_policy = retry_policy
 
     async def lock_upcoming_job(self, locker: str) -> tuple[Optional[PyMongoLeasingJobLock], dt.timedelta]:
         return await PyMongoLeasingJobLock.try_lock(
@@ -610,6 +644,9 @@ class PyMongoLeasingLockManager(sx.LockManager[PyMongoLeasingJobLock, PyMongoLea
             self._dbname,
             self._period,
             locker,
+            self._autoextend,
+            self._autoextend_after,
             self._event_sender,
             self._executor_tags,
+            self._retry_policy,
         )

@@ -1,11 +1,13 @@
 import abc
+import asyncio as aio
 import contextlib as cl
 import datetime as dt
 import logging
 from collections import deque
 from types import TracebackType
-from typing import Never, Optional
+from typing import Never, Optional, Self
 
+from schedex import guard as grd
 from schedex.eventbus import Event, EventSender
 from schedex.storage import StoredJob, StoredTask
 
@@ -116,12 +118,26 @@ class LeasingTaskLock(TaskLock, abc.ABC):
         self,
         period: dt.timedelta,
         locker: str,
+        autoextend: bool,
+        autoextend_after: Optional[dt.timedelta],
+        retry_policy: Optional[grd.RetryPolicy],
     ):
         super().__init__()
+
+        autoextend_after = autoextend_after or period / 2
+        assert period > autoextend_after, "period must be greater than autoextend_after"
 
         self._acquired_at = dt.datetime.now(dt.timezone.utc)
         self._period = period
         self._locker = locker
+        self._autoextend = autoextend
+        self._retry_policy = retry_policy or grd.exponential_delay(
+            initial=dt.timedelta(seconds=1),
+            maximum=dt.timedelta(seconds=30),
+            factor=1.5,
+        )
+        self._autoextend_after = autoextend_after
+        self._extender: Optional[aio.Task[None]] = None
 
     @property
     def period(self) -> dt.timedelta:
@@ -135,13 +151,50 @@ class LeasingTaskLock(TaskLock, abc.ABC):
     def acquired_at(self) -> dt.datetime:
         return self._acquired_at
 
+    async def __aenter__(self) -> Self:
+        if self._autoextend:
+            self._extender = aio.create_task(self._extend_lock())
+
+        return self
+
     async def __aexit__(
         self,
         exc_type: Optional[type[BaseException]],
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> Optional[bool]:
+        if self._extender is not None:
+            self._extender.cancel()
+            try:
+                await self._extender
+            except Exception as exc:
+                logger.error("extender failed: %s", exc)
+            except aio.CancelledError:
+                pass
+
         return False
+
+    async def _extend_lock(self) -> None:
+        logger.debug("starting lock auto-extender")
+
+        with grd.ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+            while ticket := await guard.acquire_async():
+                with ticket:
+                    remain = self.period - (dt.datetime.now(tz=dt.timezone.utc) - self.acquired_at)
+
+                    if remain <= dt.timedelta(0):
+                        logger.info("lock autoextend failed: lock expired")
+                        break
+
+                    gap = self.period - self._autoextend_after
+                    if remain < gap:
+                        if not await self.extend(self.period):
+                            logger.info("lock autoextend failed: lock expired")
+                            break
+
+                        logger.debug("lock extended for %s", self.period)
+
+                    await aio.sleep((remain - gap).total_seconds())
 
     @abc.abstractmethod
     async def is_locked(self) -> bool:

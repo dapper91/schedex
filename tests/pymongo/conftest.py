@@ -72,6 +72,7 @@ async def pymongo_lock_manager_builder(
 ) -> Callable[..., sxpm.PyMongoLeasingLockManager]:
     def builder(**kwargs: Any) -> sxpm.PyMongoLeasingLockManager:
         kwargs.setdefault("period", lock_period)
+        kwargs.setdefault("autoextend", False)
 
         return sxpm.PyMongoLeasingLockManager(pymongo_database_client, dbname=mongodb_dbname, **kwargs)
 
