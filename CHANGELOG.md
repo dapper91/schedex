@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-11-07)
+
+### Bug Fixes
+
+- Locker identifier is not global for manager.
+  ([`9ac7ce2`](https://github.com/dapper91/schedex/commit/9ac7ce2821514e6422c55ffd6e5016bb9b0f4c3c))
+
+### Documentation
+
+- Docstrings completed.
+  ([`c9c5846`](https://github.com/dapper91/schedex/commit/c9c5846b929e0e2fc4405b480b272e90108fe8b3))
+
+- Documentation added.
+  ([`e0d9666`](https://github.com/dapper91/schedex/commit/e0d96662de30bdb5fdeaa0879516bfc560d78875))
+
+### Features
+
+- Leasing lock autoextend implemented.
+  ([`8120226`](https://github.com/dapper91/schedex/commit/8120226bf5d20d5fbd1b871b64cea3fdce913b07))
+
+- Task cancelling on lock expiration feature added.
+  ([`b414c71`](https://github.com/dapper91/schedex/commit/b414c7111609728754eda0cb8931ae35fc85e78c))
+
+
 ## v0.3.0 (2026-10-27)
 
 ### Features
