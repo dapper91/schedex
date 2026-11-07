@@ -3,8 +3,10 @@ import contextlib as cl
 import datetime as dt
 import functools as ft
 import logging
+import uuid
+from collections import deque
 from types import TracebackType
-from typing import Any, Coroutine, Iterable, Optional, Protocol
+from typing import Any, Callable, Coroutine, Iterable, Optional, Protocol, Self
 
 from schedex.context import Context, TaskInfo
 from schedex.eventbus import Event, EventKind, EventReceiver, EventSender
@@ -12,12 +14,18 @@ from schedex.guard import ErrorGuard, RetryPolicy, exponential_delay
 from schedex.lock import JobLock, LockManager, TaskLock
 from schedex.metadata import metadata_decoder
 from schedex.runtime import first, second, select, third
+from schedex.runtime import service as svc
 from schedex.schedule import Schedule
 from schedex.task import Task, TaskRegistry
 
 from .task_fetcher import TaskFetcher
 
 logger = logging.getLogger(__name__)
+
+
+def assert_not_none[T](obj: Optional[T], msg: Optional[str] = None) -> T:
+    assert obj is not None, msg or "object must not be None"
+    return obj
 
 
 class Worker:
@@ -27,9 +35,14 @@ class Worker:
     :param pool: a reference to the worker pool
     """
 
-    def __init__(self, pool: "WorkerPool"):
+    def __init__(self, identifier: str, pool: "WorkerPool"):
+        self._identifier = identifier
         self._pool = pool
         self._task: Optional[aio.Task[None]] = None
+
+    @property
+    def identifier(self) -> str:
+        return self._identifier
 
     def release(self) -> None:
         """
@@ -38,7 +51,7 @@ class Worker:
 
         self._pool.release(self)
 
-    def submit(self, coro: Coroutine[Any, Any, None]) -> None:
+    def submit(self, coro: Coroutine[Any, Any, None], name: Optional[str] = None) -> None:
         """
         Executes a coroutine in a worker.
         """
@@ -46,7 +59,7 @@ class Worker:
         if self._task is not None:
             raise RuntimeError("worker is busy")
 
-        self._task = task = aio.create_task(coro)
+        self._task = task = aio.create_task(coro, name=name)
         task.add_done_callback(self._on_task_done)
 
     async def wait(self) -> None:
@@ -63,7 +76,7 @@ class Worker:
         except Exception as e:
             logger.exception("worker task failed: %s", e)
         except aio.CancelledError:
-            pass
+            logger.info("task %s cancelled", task.get_name())
 
         self._task = None
         self.release()
@@ -77,10 +90,18 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
     :param shutdown_timeout: timeout during which the pool waits for workers to finish before cancelling them
     """
 
-    def __init__(self, max_workers: int, shutdown_timeout: float = 60.0):
+    def __init__(
+        self,
+        max_workers: int,
+        shutdown_timeout: float = 60.0,
+        worker_id_gen: Optional[Callable[[], str]] = None,
+    ):
         self._max_workers = max_workers
         self._shutdown_timeout = shutdown_timeout
-        self._workers: set[Worker] = set()
+
+        self._worker_id_gen = worker_id_gen or (lambda: str(uuid.uuid4()))
+        self._free_workers: deque[Worker] = deque(maxlen=max_workers)
+        self._busy_workers: set[Worker] = set()
         self._worker_released_event = aio.Event()
 
     @property
@@ -89,7 +110,7 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
         Worker pool size.
         """
 
-        return len(self._workers)
+        return len(self._busy_workers)
 
     @property
     def max_workers(self) -> int:
@@ -99,6 +120,12 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
 
         return self._max_workers
 
+    async def __aenter__(self) -> Self:
+        for _ in range(self._max_workers):
+            self._free_workers.append(Worker(self._worker_id_gen(), self))
+
+        return self
+
     async def __aexit__(
         self,
         exc_type: Optional[type[BaseException]],
@@ -107,15 +134,24 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
     ) -> bool:
         try:
             async with aio.timeout(self._shutdown_timeout):
-                for worker in list(self._workers):
+                for worker in list(self._busy_workers):
                     try:
                         await worker.wait()
                     except BaseException:
                         pass
 
         except aio.TimeoutError:
-            for worker in self._workers:
+            while self._busy_workers:
+                worker = self._busy_workers.pop()
                 worker.cancel()
+                try:
+                    await worker.wait()
+                except aio.CancelledError:
+                    pass
+                except BaseException:
+                    pass
+
+        self._free_workers.clear()
 
         return False
 
@@ -124,11 +160,12 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
         Returns a worker bound to the pool or waits until any worker finishes its job if the pool is full .
         """
 
-        while len(self._workers) == self._max_workers:
+        while not self._free_workers:
             await self._worker_released_event.wait()
             self._worker_released_event.clear()
 
-        self._workers.add(worker := Worker(self))
+        worker = self._free_workers.popleft()
+        self._busy_workers.add(worker)
 
         return worker
 
@@ -137,7 +174,8 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
         Releases a worker.
         """
 
-        self._workers.remove(worker)
+        self._busy_workers.remove(worker)
+        self._free_workers.append(worker)
         self._worker_released_event.set()
 
 
@@ -188,6 +226,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
     :param middlewares: executor middlewares
     :param shutdown_timeout: timeout during which the executor waits for workers to finish before cancelling them
     :param retry_policy: error handling retry policy
+    :param cancel_on_lock_expired: cancel a task when lock expires
     """
 
     def __init__(
@@ -203,15 +242,18 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
         middlewares: Iterable[ExecutorMiddleware[Context[StT, TlkT]]] = (),
         shutdown_timeout: float = 60.0,
         retry_policy: Optional[RetryPolicy] = None,
+        worker_id_gen: Optional[Callable[[], str]] = None,
+        cancel_on_lock_expired: bool = False,
     ) -> None:
         self._state = state
         self._polling_interval = polling_interval
+        self._cancel_on_lock_expired = cancel_on_lock_expired
         self._retry_policy = retry_policy or exponential_delay(
             initial=dt.timedelta(seconds=1),
             maximum=dt.timedelta(seconds=30),
             factor=1.5,
         )
-        self._worker_pool: WorkerPool = WorkerPool(max_workers, shutdown_timeout=shutdown_timeout)
+        self._worker_pool = WorkerPool(max_workers, shutdown_timeout=shutdown_timeout, worker_id_gen=worker_id_gen)
         self._task_fetcher = TaskFetcher(polling_interval, lock_manager, schedule_type)
         self._task_registry = task_registry
         self._event_sender = event_sender
@@ -234,11 +276,11 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
             await self._event_sender.send(Event(EventKind.NodeJoined))
 
         with cl.suppress(aio.CancelledError):
-            async with aio.TaskGroup() as tasks:
+            async with aio.TaskGroup() as services:
                 task_changed_event = aio.Event()
-                tasks.create_task(self._process_tasks(self._task_fetcher, task_changed_event))
+                services.create_task(self._process_tasks(self._task_fetcher, task_changed_event))
                 if self._event_receiver:
-                    tasks.create_task(self._process_events(self._event_receiver, task_changed_event))
+                    services.create_task(self._process_events(self._event_receiver, task_changed_event))
 
         if self._event_sender:
             await self._event_sender.send(Event(EventKind.NodeLeft))
@@ -256,10 +298,10 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
                     worker = await worker_pool.acquire()
                     try:
                         with ticket:
-                            task_lock, delay = await task_fetcher.fetch_next_task()
+                            task_lock, delay = await task_fetcher.fetch_next_task(worker.identifier)
                             if task_lock is not None:
                                 logger.debug("task '%s' locked", task_lock.task.id)
-                                worker.submit(self._execute_task(task_lock))
+                                worker.submit(self._execute_task(task_lock), name=task_lock.task.task_name)
                             else:
                                 match await select(
                                     task_status_changed.wait(),
@@ -299,7 +341,12 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
                             guard.reset()
 
     async def _execute_task(self, task_lock: TlkT) -> None:
-        async with task_lock:
+        logger.info("executing task %s", task_lock.task.task_name)
+
+        async with task_lock, svc.Services() as services:
+            if self._cancel_on_lock_expired:
+                services.launch(self._cancel_task_on_lock_expired(assert_not_none(aio.current_task()), task_lock))
+
             context = Context(
                 state=self._state,
                 lock=task_lock,
@@ -323,3 +370,12 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
 
         bound_task = task.bound_task_cls.deserialize(context.lock.task.task_args)
         await task(context, *bound_task.args, **bound_task.kwargs)
+
+    async def _cancel_task_on_lock_expired(self, task: aio.Task[None], lock: TlkT) -> None:
+        with ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+            while ticket := await guard.acquire_async():
+                with ticket:
+                    await lock.wait_unlocked()
+                    logger.info("task %s canceled due to lock expired", task.get_name())
+                    task.cancel()
+                    break

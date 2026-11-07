@@ -1,15 +1,17 @@
+import abc
 import datetime as dt
 from typing import Any, ClassVar, Mapping, Optional
 
 import pymongo.asynchronous.client_session as sess
 
+import schedex as sx
 import schedex.contrib.pymongo as sxpm
 from tests.types import BaseStorage, StorageTransaction
 
 type DocumentType = Mapping[str, Any]
 
 
-class BasePyMongoStorage(BaseStorage):
+class BasePyMongoStorage(BaseStorage, abc.ABC):
     Document: ClassVar[type[Any]]
     Collection: ClassVar[str]
 
@@ -45,6 +47,11 @@ class BasePyMongoStorage(BaseStorage):
     async def assert_empty(self) -> None:
         await self.assert_has({}, 0)
 
+
+class JobPyMongoStorage(BasePyMongoStorage):
+    Document = sxpm.Job
+    Collection = "schedex_jobs"
+
     async def assert_is_locked(self, filters: Mapping[str, Any]) -> None:
         filters = dict(
             filters,
@@ -54,14 +61,18 @@ class BasePyMongoStorage(BaseStorage):
         await self.assert_has(filters)
 
 
-class JobPyMongoStorage(BasePyMongoStorage):
-    Document = sxpm.Job
-    Collection = "schedex_jobs"
-
-
 class TaskPyMongoStorage(BasePyMongoStorage):
     Document = sxpm.Task
     Collection = "schedex_tasks"
+
+    async def assert_is_locked(self, filters: Mapping[str, Any]) -> None:
+        filters = dict(
+            filters,
+            status=sx.TaskStatus.Executing,
+            acquired_by=self._lock_id,
+            acquired_until=dt.datetime.now(dt.timezone.utc) + self._lock_period,
+        )
+        await self.assert_has(filters)
 
 
 class PyMongoStorageTransaction[Tx](StorageTransaction):

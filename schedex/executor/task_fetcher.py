@@ -28,28 +28,26 @@ class TaskFetcher[SchT: Schedule, JlkT: JobLock, TlkT: TaskLock]:
         self._schedule_type = schedule_type
         self._lock_manager = lock_manager
 
-    def __aiter__(self) -> "TaskStream[SchT, JlkT, TlkT]":
-        return TaskStream(self)
-
     @property
     def polling_interval(self) -> dt.timedelta:
         return self._polling_interval
 
-    async def fetch_next_task(self) -> tuple[Optional[TlkT], dt.timedelta]:
+    async def fetch_next_task(self, locker: str) -> tuple[Optional[TlkT], dt.timedelta]:
         """
         Waits for an upcoming task.
 
+        :param locker: locker identifier
         :return: tuple of locked task, next try delay
         """
 
         logger.debug("looking for upcoming task...")
 
-        task_lock, next_task_delay = await self._lock_manager.lock_next_task()
+        task_lock, next_task_delay = await self._lock_manager.lock_next_task(locker)
         if task_lock is not None:
             logger.debug("task %s locked", task_lock.task.id)
             return task_lock, dt.timedelta(0)
 
-        job_lock, next_job_delay = await self._lock_manager.lock_upcoming_job()
+        job_lock, next_job_delay = await self._lock_manager.lock_upcoming_job(locker)
         if job_lock is not None:
             logger.debug("processing job %s", job_lock.job.id)
             await self._process_job(job_lock)
@@ -73,12 +71,13 @@ class TaskStream[SchT: Schedule, JlkT: JobLock, TlkT: TaskLock](AsyncIterator[Tl
     :param task_fetcher: task fetcher
     """
 
-    def __init__(self, task_fetcher: TaskFetcher[SchT, JlkT, TlkT]):
+    def __init__(self, locker: str, task_fetcher: TaskFetcher[SchT, JlkT, TlkT]):
+        self._locker = locker
         self._task_fetcher = task_fetcher
 
     async def __anext__(self) -> TlkT:
         while True:
-            task_lock, delay = await self._task_fetcher.fetch_next_task()
+            task_lock, delay = await self._task_fetcher.fetch_next_task(self._locker)
             if task_lock is None:
                 await aio.sleep(min(delay, self._task_fetcher.polling_interval).total_seconds())
             else:

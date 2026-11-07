@@ -33,7 +33,7 @@ class Job(TypedDict):
     meta: bytes
     # job next run time
     run_at: dt.datetime
-    # identifier of the lock that acquired the job
+    # identifier of the locker that acquired the job
     acquired_by: NotRequired[Optional[str]]
     # timestamp until the lock acquired the job
     acquired_until: NotRequired[Optional[dt.datetime]]
@@ -99,7 +99,7 @@ class Task(TypedDict):
     meta: bytes
     # task run time
     run_at: dt.datetime
-    # identifier of the lock that acquired the task
+    # identifier of the locker that acquired the task
     acquired_by: NotRequired[Optional[str]]
     # timestamp until the lock acquired the task
     acquired_until: NotRequired[Optional[dt.datetime]]

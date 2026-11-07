@@ -1,11 +1,23 @@
 import abc
+import asyncio as aio
 import contextlib as cl
 import datetime as dt
+import logging
 from collections import deque
-from typing import Never, Optional
+from types import TracebackType
+from typing import Never, Optional, Self
 
+from schedex import guard as grd
 from schedex.eventbus import Event, EventSender
 from schedex.storage import StoredJob, StoredTask
+
+logger = logging.getLogger(__name__)
+
+
+class LockFailedError(Exception):
+    """
+    Entity locking failed.
+    """
 
 
 class BreakTask(BaseException):
@@ -65,12 +77,23 @@ class TaskLock(Lock, abc.ABC):
     Scheduler task lock.
     """
 
+    def __init__(self) -> None:
+        self._acquired_at = dt.datetime.now(dt.timezone.utc)
+
     @property
     @abc.abstractmethod
     def task(self) -> StoredTask:
         """
         Returns locked task.
         """
+
+    @property
+    def acquired_at(self) -> dt.datetime:
+        """
+        Returns timestamp when the lock was acquired.
+        """
+
+        return self._acquired_at
 
     @abc.abstractmethod
     async def remove(self) -> None:
@@ -96,22 +119,147 @@ class TaskLock(Lock, abc.ABC):
         Postpones the task for a future execution.
         """
 
-
-class LockManager[JlkT: JobLock, TlkT: TaskLock](abc.ABC):
     @abc.abstractmethod
-    async def lock_upcoming_job(self) -> tuple[Optional[JlkT], dt.timedelta]:
+    async def wait_unlocked(self) -> None:
+        """
+        Waits until the lock is unlocked (released or expired).
+        """
+
+
+class LeasingTaskLock(TaskLock, abc.ABC):
+    """
+    Scheduler leasing task lock.
+    """
+
+    def __init__(
+        self,
+        period: dt.timedelta,
+        locker: str,
+        autoextend: bool,
+        autoextend_after: Optional[dt.timedelta],
+        retry_policy: Optional[grd.RetryPolicy],
+    ):
+        super().__init__()
+
+        autoextend_after = autoextend_after or period / 2
+        assert period > autoextend_after, "period must be greater than autoextend_after"
+
+        self._period = period
+        self._locker = locker
+        self._autoextend = autoextend
+        self._retry_policy = retry_policy or grd.exponential_delay(
+            initial=dt.timedelta(seconds=1),
+            maximum=dt.timedelta(seconds=30),
+            factor=1.5,
+        )
+        self._autoextend_after = autoextend_after
+        self._extender: Optional[aio.Task[None]] = None
+
+    @property
+    def period(self) -> dt.timedelta:
+        return self._period
+
+    @property
+    def locker(self) -> str:
+        return self._locker
+
+    async def __aenter__(self) -> Self:
+        if self._autoextend:
+            self._extender = aio.create_task(self._start_auto_extender())
+
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Optional[bool]:
+        if self._extender is not None:
+            self._extender.cancel()
+            try:
+                await self._extender
+            except Exception as exc:
+                logger.error("extender failed: %s", exc)
+            except aio.CancelledError:
+                pass
+
+        return False
+
+    @abc.abstractmethod
+    async def is_locked(self) -> bool:
+        pass
+
+    @abc.abstractmethod
+    async def remain(self) -> Optional[dt.timedelta]:
+        pass
+
+    @abc.abstractmethod
+    async def extend(self, period: dt.timedelta) -> bool:
+        pass
+
+    async def wait_unlocked(self) -> None:
+        while True:
+            remain = await self.remain()
+            if remain is None or remain <= dt.timedelta(0):
+                return
+            else:
+                await aio.sleep(remain.total_seconds())
+
+    async def _start_auto_extender(self) -> None:
+        logger.debug("starting lock auto-extender")
+
+        with grd.ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+            while ticket := await guard.acquire_async():
+                with ticket:
+                    remain = self.period - (dt.datetime.now(tz=dt.timezone.utc) - self.acquired_at)
+
+                    if remain <= dt.timedelta(0):
+                        logger.info("lock autoextend failed: lock expired")
+                        break
+
+                    gap = self.period - self._autoextend_after
+                    if remain < gap:
+                        if not await self.extend(self.period):
+                            logger.info("lock autoextend failed: lock expired")
+                            break
+
+                        logger.debug("lock extended for %s", self.period)
+
+                    await aio.sleep((remain - gap).total_seconds())
+
+
+class LockManager[JlkT: JobLock, TlkT: TaskLock](cl.AbstractAsyncContextManager["LockManager[JlkT, TlkT]"], abc.ABC):
+    """
+    Scheduler lock manager.
+    """
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return False
+
+    @abc.abstractmethod
+    async def lock_upcoming_job(self, locker: str) -> tuple[Optional[JlkT], dt.timedelta]:
         """
         Creates a job lock.
 
-        :return: job lock or `None` if there is no job to lock.
+        :param locker: locker identifier
+        :return: job lock, delay pair where job is a locked job or `None` if there is no job to lock and
+                 delay indicates how much time to wait for the next try
         """
 
     @abc.abstractmethod
-    async def lock_next_task(self) -> tuple[Optional[TlkT], dt.timedelta]:
+    async def lock_next_task(self, locker: str) -> tuple[Optional[TlkT], dt.timedelta]:
         """
         Creates a task lock.
 
-        :return: task lock or `None` if there is no task to lock.
+        :param locker: locker identifier
+        :return: task lock, delay pair where task is a locked task or `None` if there is no task to lock and
+                 delay indicates how much time to wait for the next try
         """
 
 

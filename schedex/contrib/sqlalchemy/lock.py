@@ -1,4 +1,5 @@
 import asyncio as aio
+import contextlib as cl
 import datetime as dt
 import logging
 import uuid
@@ -10,17 +11,12 @@ import sqlalchemy.ext.asyncio as aiosa
 import sqlalchemy.orm
 
 import schedex as sx
-from schedex.lock import BreakTask
+from schedex.guard import RetryPolicy
+from schedex.lock import BreakTask, LockFailedError
 
 from . import tables
 
 logger = logging.getLogger(__name__)
-
-
-class LockFailedError(Exception):
-    """
-    Entity locking failed.
-    """
 
 
 class SqlAlchemySfuJobLock(sx.EventManagerMixin, sx.JobLock):
@@ -271,11 +267,12 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
     def __init__(self, session: aiosa.AsyncSession, task: tables.Task, event_sender: Optional[sx.EventSender] = None):
         assert session.in_transaction(), "transaction is not started"
 
-        super().__init__(event_sender)
+        sx.EventManagerMixin.__init__(self, event_sender)
+        sx.TaskLock.__init__(self)
 
         self._session = session
         self._task = task
-        self._released = False
+        self._released = aio.Event()
 
     @property
     def task(self) -> sx.StoredTask:
@@ -306,7 +303,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         elif isinstance(exc_value, aio.CancelledError):
             await self._release(rollback=True)
         elif isinstance(exc_value, BreakTask):
-            if not self._released:
+            if not self._released.is_set():
                 await self._release()
             return True
         else:
@@ -315,13 +312,13 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         return False
 
     async def release(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._release(rollback=True)
         logger.debug("task %s released", self._task.id)
 
     async def release_with_error(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(
             sa.update(tables.Task)
@@ -334,7 +331,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released with error", self._task.id)
 
     async def succeed(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(
             sa.update(tables.Task).values(status=sx.TaskStatus.Succeeded).where(tables.Task.id == self._task.id)
@@ -345,7 +342,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released as succeeded", self._task.id)
 
     async def remove(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(sa.delete(tables.Task).where(tables.Task.id == self._task.id))
         self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
@@ -354,7 +351,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s removed", self._task.id)
 
     async def postpone(self, delay: dt.timedelta) -> Never:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(
             sa.update(tables.Task)
@@ -370,6 +367,9 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         await self._release()
         raise BreakTask()
 
+    async def wait_unlocked(self) -> None:
+        await self._released.wait()
+
     async def _release(self, rollback: bool = False) -> None:
         self._session.expunge(self._task)
 
@@ -381,7 +381,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 await self._session.commit()
         finally:
             await self._session.close()
-            self._released = True
+            self._released.set()
 
         await self._flush_events()
 
@@ -405,10 +405,10 @@ class SqlAlchemySfuLockManager(sx.LockManager[SqlAlchemySfuJobLock, SqlAlchemySf
         self._event_sender = event_sender
         self._executor_tags = executor_tags
 
-    async def lock_upcoming_job(self) -> tuple[Optional[SqlAlchemySfuJobLock], dt.timedelta]:
+    async def lock_upcoming_job(self, locker: str) -> tuple[Optional[SqlAlchemySfuJobLock], dt.timedelta]:
         return await SqlAlchemySfuJobLock.try_lock(self._session_maker, self._event_sender, self._executor_tags)
 
-    async def lock_next_task(self) -> tuple[Optional[SqlAlchemySfuTaskLock], dt.timedelta]:
+    async def lock_next_task(self, locker: str) -> tuple[Optional[SqlAlchemySfuTaskLock], dt.timedelta]:
         return await SqlAlchemySfuTaskLock.try_lock(self._session_maker, self._event_sender, self._executor_tags)
 
 
@@ -419,7 +419,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
     :param session_maker: sqlalchemy session maker
     :param job: locked job
     :param period: lock period
-    :param identifier: locker identifier
+    :param locker: locker identifier
     :param event_sender: event sender
     """
 
@@ -428,7 +428,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         cls,
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         period: dt.timedelta,
-        identifier: str,
+        locker: str,
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
@@ -437,7 +437,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
 
         :param session_maker: sqlalchemy session maker
         :param period: lock period
-        :param identifier: locker identifier
+        :param locker: locker identifier
         :param event_sender: event sender
         :param executor_tags: executor tags
         :return: locked job, delay pair where task is a locked task and delay indicates how much time
@@ -503,7 +503,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                                     tables.Job.acquired_until == job.acquired_until,
                                 )
                                 .values(
-                                    acquired_by=identifier,
+                                    acquired_by=locker,
                                     acquired_until=dt.datetime.now(tz=dt.timezone.utc) + period,
                                 )
                             ),
@@ -511,7 +511,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                         if result.rowcount:
                             session.expunge(job)
                             logger.debug("job %s locked", job.id)
-                            lock = cls(session_maker, job, period, identifier, event_sender)
+                            lock = cls(session_maker, job, period, locker, event_sender)
                             return lock, dt.timedelta(0)
                         else:
                             logger.debug("job acquired by another worker")
@@ -529,7 +529,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         job: tables.Job,
         period: dt.timedelta,
-        identifier: str,
+        locker: str,
         event_sender: Optional[sx.EventSender] = None,
     ):
         super().__init__(event_sender)
@@ -537,15 +537,15 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
         self._session_maker = session_maker
         self._job = job
         self._period = period
-        self._identifier = identifier
+        self._locker = locker
 
     @property
     def period(self) -> dt.timedelta:
         return self._period
 
     @property
-    def identifier(self) -> str:
-        return self._identifier
+    def locker(self) -> str:
+        return self._locker
 
     @property
     def job(self) -> sx.StoredJob:
@@ -561,9 +561,6 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
             run_at=self._job.run_at,
             executor_tag=self._job.executor_tag,
         )
-
-    async def __aenter__(self) -> Self:
-        return self
 
     async def __aexit__(
         self,
@@ -590,7 +587,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                     await session.execute(
                         sa.delete(tables.Job).where(
                             tables.Job.id == self._job.id,
-                            tables.Job.acquired_by == self._identifier,
+                            tables.Job.acquired_by == self._locker,
                             tables.Job.acquired_until >= dt.datetime.now(tz=dt.timezone.utc),
                         )
                     ),
@@ -681,7 +678,7 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
                 .values(**value)
                 .where(
                     tables.Job.id == self._job.id,
-                    tables.Job.acquired_by == self._identifier,
+                    tables.Job.acquired_by == self._locker,
                     tables.Job.acquired_until >= dt.datetime.now(tz=dt.timezone.utc),
                 )
             ),
@@ -690,15 +687,18 @@ class SqlAlchemyLeasingJobLock(sx.EventManagerMixin, sx.JobLock):
             raise LockFailedError("job lock expired")
 
 
-class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
+class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.LeasingTaskLock):
     """
     SqlAlchemy leasing task lock.
 
     :param session_maker: sqlalchemy session maker
     :param task: locked task
     :param period: lock period
-    :param identifier: locker identifier
+    :param autoextend: extend lock automatically
+    :param autoextend_after: period after which the lock is automatically extended
+    :param locker: locker identifier
     :param event_sender: event sender
+    :param retry_policy: auto-extender retry policy, if autoextend is `False` argument is ignored
     """
 
     @classmethod
@@ -706,20 +706,26 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         cls,
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         period: dt.timedelta,
-        identifier: str,
+        locker: str,
+        autoextend: bool = True,
+        autoextend_after: Optional[dt.timedelta] = None,
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ) -> tuple[Optional[Self], dt.timedelta]:
         """
         Tries to lock a task.
 
         :param session_maker: sqlalchemy session maker
         :param period: lock period
-        :param identifier: locker identifier
+        :param locker: locker identifier
+        :param autoextend: extend lock automatically
+        :param autoextend_after: period after which the lock is automatically extended
         :param event_sender: event sender
         :param executor_tags: executor tags
         :return: locked task, delay pair where task is a locked task and delay indicates how much time
                  to wait for a task to be available to lock
+        :param retry_policy: auto-extender retry policy, if autoextend is `False` argument is ignored
         """
 
         logger.debug("locking a task...")
@@ -781,7 +787,8 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                                     tables.Task.acquired_until == task.acquired_until,
                                 )
                                 .values(
-                                    acquired_by=identifier,
+                                    status=sx.TaskStatus.Executing,
+                                    acquired_by=locker,
                                     acquired_until=dt.datetime.now(tz=dt.timezone.utc) + period,
                                 )
                             ),
@@ -789,7 +796,16 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                         if result.rowcount:
                             logger.debug("task %s locked", task.id)
                             session.expunge(task)
-                            lock = cls(session_maker, task, period, identifier, event_sender)
+                            lock = cls(
+                                session_maker,
+                                task,
+                                period,
+                                locker,
+                                autoextend,
+                                autoextend_after,
+                                event_sender,
+                                retry_policy,
+                            )
                             return lock, dt.timedelta(0)
                         else:
                             logger.debug("task acquired by another worker")
@@ -807,23 +823,17 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
         session_maker: aiosa.async_sessionmaker[aiosa.AsyncSession],
         task: tables.Task,
         period: dt.timedelta,
-        identifier: str,
+        locker: str,
+        autoextend: bool = True,
+        autoextend_after: Optional[dt.timedelta] = None,
         event_sender: Optional[sx.EventSender] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ):
-        super().__init__(event_sender)
+        sx.EventManagerMixin.__init__(self, event_sender)
+        sx.LeasingTaskLock.__init__(self, period, locker, autoextend, autoextend_after, retry_policy)
 
         self._session_maker = session_maker
         self._task = task
-        self._period = period
-        self._identifier = identifier
-
-    @property
-    def period(self) -> dt.timedelta:
-        return self._period
-
-    @property
-    def identifier(self) -> str:
-        return self._identifier
 
     @property
     def task(self) -> sx.StoredTask:
@@ -843,30 +853,30 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
             executor_tag=self._task.executor_tag,
         )
 
-    async def __aenter__(self) -> Self:
-        return self
-
     async def __aexit__(
         self,
         exc_type: Optional[type[BaseException]],
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> Optional[bool]:
-        if exc_value is None:
-            await self.succeed()
-        elif isinstance(exc_value, aio.CancelledError):
-            await self.release()
-        elif isinstance(exc_value, BreakTask):
-            return True
-        else:
-            await self.release_with_error()
+        await super().__aexit__(exc_type, exc_value, traceback)
+
+        with cl.suppress(LockFailedError):
+            if exc_value is None:
+                await self.succeed()
+            elif isinstance(exc_value, aio.CancelledError):
+                await self.release()
+            elif isinstance(exc_value, BreakTask):
+                return True
+            else:
+                await self.release_with_error()
 
         return False
 
     async def release(self) -> None:
         async with self._session_maker() as session:
             async with session.begin():
-                await self._update_and_release(session)
+                await self._update_and_release(session, status=sx.TaskStatus.Pending)
                 self._emit_event(sx.Event(sx.EventKind.TaskReady))
 
         logger.debug("task %s released", self._task.id)
@@ -881,7 +891,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                     await session.execute(
                         sa.delete(tables.Task).where(
                             tables.Task.id == self._task.id,
-                            tables.Task.acquired_by == self._identifier,
+                            tables.Task.acquired_by == self._locker,
                             tables.Task.acquired_until >= dt.datetime.now(tz=dt.timezone.utc),
                         )
                     ),
@@ -938,7 +948,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 acquired_until = await session.scalar(
                     sa.select(tables.Task.acquired_until).where(
                         tables.Task.id == self._task.id,
-                        tables.Task.acquired_by == self._identifier,
+                        tables.Task.acquired_by == self._locker,
                         tables.Task.acquired_until >= dt.datetime.now(tz=dt.timezone.utc),
                     )
                 )
@@ -959,11 +969,13 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                         )
                         .where(
                             tables.Task.id == self._task.id,
-                            tables.Task.acquired_by == self._identifier,
+                            tables.Task.acquired_by == self._locker,
                             tables.Task.acquired_until >= dt.datetime.now(tz=dt.timezone.utc),
                         )
                     ),
                 )
+
+        self._acquired_at = dt.datetime.now(tz=dt.timezone.utc)
 
         logger.debug("task %s lock extended by %s", self._task.id, period)
 
@@ -977,7 +989,7 @@ class SqlAlchemyLeasingTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 .values(acquired_by=None, acquired_until=None, **value)
                 .where(
                     tables.Task.id == self._task.id,
-                    tables.Task.acquired_by == self._identifier,
+                    tables.Task.acquired_by == self._locker,
                     tables.Task.acquired_until >= dt.datetime.now(tz=dt.timezone.utc),
                 )
             ),
@@ -992,40 +1004,48 @@ class SqlAlchemyLeasingLockManager(sx.LockManager[SqlAlchemyLeasingJobLock, SqlA
 
     :param engine: SQLAlchemy engine instance
     :param period: task lock period
-    :param identifier: lock identifier
+    :param autoextend: extend lock automatically
+    :param autoextend_after: period after which the lock is automatically extended
     :param event_sender: scheduler event sender
-    :param identifier: lock identifier tasks will be acquired by
     :param executor_tags: executor tags
+    :param retry_policy: auto-extender retry policy, if autoextend is `False` argument is ignored
     """
 
     def __init__(
         self,
         engine: aiosa.AsyncEngine,
         period: dt.timedelta,
-        identifier: str,
+        autoextend: bool = True,
+        autoextend_after: Optional[dt.timedelta] = None,
         event_sender: Optional[sx.EventSender] = None,
         executor_tags: Optional[Iterable[str]] = None,
+        retry_policy: Optional[RetryPolicy] = None,
     ):
         self._session_maker = aiosa.async_sessionmaker(engine)
         self._event_sender = event_sender
         self._period = period
-        self._identifier = identifier
+        self._autoextend = autoextend
+        self._autoextend_after = autoextend_after
         self._executor_tags = executor_tags
+        self._retry_policy = retry_policy
 
-    async def lock_upcoming_job(self) -> tuple[Optional[SqlAlchemyLeasingJobLock], dt.timedelta]:
+    async def lock_upcoming_job(self, locker: str) -> tuple[Optional[SqlAlchemyLeasingJobLock], dt.timedelta]:
         return await SqlAlchemyLeasingJobLock.try_lock(
             self._session_maker,
             self._period,
-            self._identifier,
+            locker,
             self._event_sender,
             self._executor_tags,
         )
 
-    async def lock_next_task(self) -> tuple[Optional[SqlAlchemyLeasingTaskLock], dt.timedelta]:
+    async def lock_next_task(self, locker: str) -> tuple[Optional[SqlAlchemyLeasingTaskLock], dt.timedelta]:
         return await SqlAlchemyLeasingTaskLock.try_lock(
             self._session_maker,
             self._period,
-            self._identifier,
+            locker,
+            self._autoextend,
+            self._autoextend_after,
             self._event_sender,
             self._executor_tags,
+            self._retry_policy,
         )

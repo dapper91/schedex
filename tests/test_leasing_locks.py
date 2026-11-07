@@ -60,18 +60,18 @@ async def test_leasing_task_lock_lease_expired(
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
 
-    lock_manager = lock_manager_builder(period=lock_period, identifier=lock_id)
+    lock_manager = lock_manager_builder(period=lock_period)
 
     stored_task = stored_task_factory.executing(acquired_by=lock_id, acquired_until=now + lock_period).build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is None
 
     time_machine.shift(lock_period)
     now = dt.datetime.now(dt.timezone.utc)
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     await task_storage.assert_has_exactly(
         dict(
@@ -102,12 +102,12 @@ async def test_leasing_task_lock_extend(
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
 
-    lock_manager = lock_manager_builder(period=lock_period, identifier=lock_id)
+    lock_manager = lock_manager_builder(period=lock_period)
 
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     assert await lock.is_locked() is True
     assert await lock.remain() == lock_period
@@ -115,7 +115,7 @@ async def test_leasing_task_lock_extend(
     await task_storage.assert_has_exactly(
         dict(
             created_at=stored_task.created_at,
-            status=sx.TaskStatus.Pending,
+            status=sx.TaskStatus.Executing,
             sequence_number=stored_task.sequence_number,
             attempts=stored_task.attempts,
             task_name=stored_task.task_name,
@@ -143,7 +143,7 @@ async def test_leasing_task_lock_extend(
     await task_storage.assert_has_exactly(
         dict(
             created_at=stored_task.created_at,
-            status=sx.TaskStatus.Pending,
+            status=sx.TaskStatus.Executing,
             sequence_number=stored_task.sequence_number,
             attempts=stored_task.attempts,
             task_name=stored_task.task_name,
