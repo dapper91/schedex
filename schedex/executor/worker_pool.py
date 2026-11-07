@@ -14,12 +14,18 @@ from schedex.guard import ErrorGuard, RetryPolicy, exponential_delay
 from schedex.lock import JobLock, LockManager, TaskLock
 from schedex.metadata import metadata_decoder
 from schedex.runtime import first, second, select, third
+from schedex.runtime import service as svc
 from schedex.schedule import Schedule
 from schedex.task import Task, TaskRegistry
 
 from .task_fetcher import TaskFetcher
 
 logger = logging.getLogger(__name__)
+
+
+def assert_not_none[T](obj: Optional[T], msg: Optional[str] = None) -> T:
+    assert obj is not None, msg or "object must not be None"
+    return obj
 
 
 class Worker:
@@ -140,6 +146,8 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
                 worker.cancel()
                 try:
                     await worker.wait()
+                except aio.CancelledError:
+                    pass
                 except BaseException:
                     pass
 
@@ -218,6 +226,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
     :param middlewares: executor middlewares
     :param shutdown_timeout: timeout during which the executor waits for workers to finish before cancelling them
     :param retry_policy: error handling retry policy
+    :param cancel_on_lock_expired: cancel a task when lock expires
     """
 
     def __init__(
@@ -234,9 +243,11 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
         shutdown_timeout: float = 60.0,
         retry_policy: Optional[RetryPolicy] = None,
         worker_id_gen: Optional[Callable[[], str]] = None,
+        cancel_on_lock_expired: bool = False,
     ) -> None:
         self._state = state
         self._polling_interval = polling_interval
+        self._cancel_on_lock_expired = cancel_on_lock_expired
         self._retry_policy = retry_policy or exponential_delay(
             initial=dt.timedelta(seconds=1),
             maximum=dt.timedelta(seconds=30),
@@ -332,7 +343,10 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
     async def _execute_task(self, task_lock: TlkT) -> None:
         logger.info("executing task %s", task_lock.task.task_name)
 
-        async with task_lock:
+        async with task_lock, svc.Services() as services:
+            if self._cancel_on_lock_expired:
+                services.launch(self._cancel_task_on_lock_expired(assert_not_none(aio.current_task()), task_lock))
+
             context = Context(
                 state=self._state,
                 lock=task_lock,
@@ -356,3 +370,12 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
 
         bound_task = task.bound_task_cls.deserialize(context.lock.task.task_args)
         await task(context, *bound_task.args, **bound_task.kwargs)
+
+    async def _cancel_task_on_lock_expired(self, task: aio.Task[None], lock: TlkT) -> None:
+        with ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+            while ticket := await guard.acquire_async():
+                with ticket:
+                    await lock.wait_unlocked()
+                    logger.info("task %s canceled due to lock expired", task.get_name())
+                    task.cancel()
+                    break

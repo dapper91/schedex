@@ -77,12 +77,23 @@ class TaskLock(Lock, abc.ABC):
     Scheduler task lock.
     """
 
+    def __init__(self) -> None:
+        self._acquired_at = dt.datetime.now(dt.timezone.utc)
+
     @property
     @abc.abstractmethod
     def task(self) -> StoredTask:
         """
         Returns locked task.
         """
+
+    @property
+    def acquired_at(self) -> dt.datetime:
+        """
+        Returns timestamp when the lock was acquired.
+        """
+
+        return self._acquired_at
 
     @abc.abstractmethod
     async def remove(self) -> None:
@@ -108,6 +119,12 @@ class TaskLock(Lock, abc.ABC):
         Postpones the task for a future execution.
         """
 
+    @abc.abstractmethod
+    async def wait_unlocked(self) -> None:
+        """
+        Waits until the lock is unlocked (released or expired).
+        """
+
 
 class LeasingTaskLock(TaskLock, abc.ABC):
     """
@@ -127,7 +144,6 @@ class LeasingTaskLock(TaskLock, abc.ABC):
         autoextend_after = autoextend_after or period / 2
         assert period > autoextend_after, "period must be greater than autoextend_after"
 
-        self._acquired_at = dt.datetime.now(dt.timezone.utc)
         self._period = period
         self._locker = locker
         self._autoextend = autoextend
@@ -147,13 +163,9 @@ class LeasingTaskLock(TaskLock, abc.ABC):
     def locker(self) -> str:
         return self._locker
 
-    @property
-    def acquired_at(self) -> dt.datetime:
-        return self._acquired_at
-
     async def __aenter__(self) -> Self:
         if self._autoextend:
-            self._extender = aio.create_task(self._extend_lock())
+            self._extender = aio.create_task(self._start_auto_extender())
 
         return self
 
@@ -174,7 +186,27 @@ class LeasingTaskLock(TaskLock, abc.ABC):
 
         return False
 
-    async def _extend_lock(self) -> None:
+    @abc.abstractmethod
+    async def is_locked(self) -> bool:
+        pass
+
+    @abc.abstractmethod
+    async def remain(self) -> Optional[dt.timedelta]:
+        pass
+
+    @abc.abstractmethod
+    async def extend(self, period: dt.timedelta) -> bool:
+        pass
+
+    async def wait_unlocked(self) -> None:
+        while True:
+            remain = await self.remain()
+            if remain is None or remain <= dt.timedelta(0):
+                return
+            else:
+                await aio.sleep(remain.total_seconds())
+
+    async def _start_auto_extender(self) -> None:
         logger.debug("starting lock auto-extender")
 
         with grd.ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
@@ -195,18 +227,6 @@ class LeasingTaskLock(TaskLock, abc.ABC):
                         logger.debug("lock extended for %s", self.period)
 
                     await aio.sleep((remain - gap).total_seconds())
-
-    @abc.abstractmethod
-    async def is_locked(self) -> bool:
-        pass
-
-    @abc.abstractmethod
-    async def remain(self) -> Optional[dt.timedelta]:
-        pass
-
-    @abc.abstractmethod
-    async def extend(self, period: dt.timedelta) -> bool:
-        pass
 
 
 class LockManager[JlkT: JobLock, TlkT: TaskLock](cl.AbstractAsyncContextManager["LockManager[JlkT, TlkT]"], abc.ABC):

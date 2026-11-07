@@ -272,7 +272,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
 
         self._session = session
         self._task = task
-        self._released = False
+        self._released = aio.Event()
 
     @property
     def task(self) -> sx.StoredTask:
@@ -303,7 +303,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         elif isinstance(exc_value, aio.CancelledError):
             await self._release(rollback=True)
         elif isinstance(exc_value, BreakTask):
-            if not self._released:
+            if not self._released.is_set():
                 await self._release()
             return True
         else:
@@ -312,13 +312,13 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         return False
 
     async def release(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._release(rollback=True)
         logger.debug("task %s released", self._task.id)
 
     async def release_with_error(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(
             sa.update(tables.Task)
@@ -331,7 +331,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released with error", self._task.id)
 
     async def succeed(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(
             sa.update(tables.Task).values(status=sx.TaskStatus.Succeeded).where(tables.Task.id == self._task.id)
@@ -342,7 +342,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s released as succeeded", self._task.id)
 
     async def remove(self) -> None:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(sa.delete(tables.Task).where(tables.Task.id == self._task.id))
         self._emit_event(sx.Event(sx.EventKind.TaskSucceeded))
@@ -351,7 +351,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         logger.debug("task %s removed", self._task.id)
 
     async def postpone(self, delay: dt.timedelta) -> Never:
-        assert not self._released, "lock already released"
+        assert not self._released.is_set(), "lock already released"
 
         await self._session.execute(
             sa.update(tables.Task)
@@ -367,6 +367,9 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
         await self._release()
         raise BreakTask()
 
+    async def wait_unlocked(self) -> None:
+        await self._released.wait()
+
     async def _release(self, rollback: bool = False) -> None:
         self._session.expunge(self._task)
 
@@ -378,7 +381,7 @@ class SqlAlchemySfuTaskLock(sx.EventManagerMixin, sx.TaskLock):
                 await self._session.commit()
         finally:
             await self._session.close()
-            self._released = True
+            self._released.set()
 
         await self._flush_events()
 
