@@ -5,7 +5,7 @@ import datetime as dt
 import uuid
 from enum import IntEnum
 from types import TracebackType
-from typing import AsyncGenerator, AsyncIterator, Optional, Self
+from typing import AsyncGenerator, AsyncIterator, Optional
 
 import msgspec
 
@@ -59,10 +59,18 @@ class Event(JsonSerializable, Serializable):
         return f"{self.kind}[{self.id}]"
 
 
-class EventSender(abc.ABC):
+class EventSender(cl.AbstractAsyncContextManager["EventSender"], abc.ABC):
     """
     Event sender.
     """
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return False
 
     @abc.abstractmethod
     async def send(self, event: Event) -> None:
@@ -73,10 +81,18 @@ class EventSender(abc.ABC):
         """
 
 
-class EventReceiver(abc.ABC):
+class EventReceiver(cl.AbstractAsyncContextManager["EventSender"], abc.ABC):
     """
     Event receiver.
     """
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return False
 
     @abc.abstractmethod
     @cl.asynccontextmanager
@@ -117,9 +133,6 @@ class BufferedEventSender(EventSender):
             factor=1.5,
         )
         self._graceful_timeout = graceful_timeout
-
-    async def __aenter__(self) -> Self:
-        return self
 
     async def __aexit__(
         self,

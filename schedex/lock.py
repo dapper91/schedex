@@ -1,11 +1,21 @@
 import abc
 import contextlib as cl
 import datetime as dt
+import logging
 from collections import deque
+from types import TracebackType
 from typing import Never, Optional
 
 from schedex.eventbus import Event, EventSender
 from schedex.storage import StoredJob, StoredTask
+
+logger = logging.getLogger(__name__)
+
+
+class LockFailedError(Exception):
+    """
+    Entity locking failed.
+    """
 
 
 class BreakTask(BaseException):
@@ -97,21 +107,86 @@ class TaskLock(Lock, abc.ABC):
         """
 
 
-class LockManager[JlkT: JobLock, TlkT: TaskLock](abc.ABC):
+class LeasingTaskLock(TaskLock, abc.ABC):
+    """
+    Scheduler leasing task lock.
+    """
+
+    def __init__(
+        self,
+        period: dt.timedelta,
+        locker: str,
+    ):
+        super().__init__()
+
+        self._acquired_at = dt.datetime.now(dt.timezone.utc)
+        self._period = period
+        self._locker = locker
+
+    @property
+    def period(self) -> dt.timedelta:
+        return self._period
+
+    @property
+    def locker(self) -> str:
+        return self._locker
+
+    @property
+    def acquired_at(self) -> dt.datetime:
+        return self._acquired_at
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return False
+
     @abc.abstractmethod
-    async def lock_upcoming_job(self) -> tuple[Optional[JlkT], dt.timedelta]:
+    async def is_locked(self) -> bool:
+        pass
+
+    @abc.abstractmethod
+    async def remain(self) -> Optional[dt.timedelta]:
+        pass
+
+    @abc.abstractmethod
+    async def extend(self, period: dt.timedelta) -> bool:
+        pass
+
+
+class LockManager[JlkT: JobLock, TlkT: TaskLock](cl.AbstractAsyncContextManager["LockManager[JlkT, TlkT]"], abc.ABC):
+    """
+    Scheduler lock manager.
+    """
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> Optional[bool]:
+        return False
+
+    @abc.abstractmethod
+    async def lock_upcoming_job(self, locker: str) -> tuple[Optional[JlkT], dt.timedelta]:
         """
         Creates a job lock.
 
-        :return: job lock or `None` if there is no job to lock.
+        :param locker: locker identifier
+        :return: job lock, delay pair where job is a locked job or `None` if there is no job to lock and
+                 delay indicates how much time to wait for the next try
         """
 
     @abc.abstractmethod
-    async def lock_next_task(self) -> tuple[Optional[TlkT], dt.timedelta]:
+    async def lock_next_task(self, locker: str) -> tuple[Optional[TlkT], dt.timedelta]:
         """
         Creates a task lock.
 
-        :return: task lock or `None` if there is no task to lock.
+        :param locker: locker identifier
+        :return: task lock, delay pair where task is a locked task or `None` if there is no task to lock and
+                 delay indicates how much time to wait for the next try
         """
 
 

@@ -2,7 +2,6 @@ import argparse
 import asyncio as aio
 import datetime as dt
 import logging
-import uuid
 from typing import Any, MutableMapping
 
 import pymongo.asynchronous.mongo_client as aiomc
@@ -67,7 +66,6 @@ async def start_executor() -> None:
 
     app_state: AppState = {}
 
-    worker_id = str(uuid.uuid4())
     executor = sx.WorkerPoolExecutor(
         max_workers=3,
         state=app_state,
@@ -78,7 +76,6 @@ async def start_executor() -> None:
             client,
             dbname="myapp",
             period=dt.timedelta(seconds=15),
-            identifier=worker_id,
         ),
         event_receiver=sxpm.PyMongoEventReceiver(client, dbname="myapp"),
     )

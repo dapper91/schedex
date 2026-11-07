@@ -175,7 +175,6 @@ async def sa_leasing_lock_manager_builder(
 ) -> Callable[..., sxsa.SqlAlchemyLeasingLockManager]:
     def builder(**kwargs) -> sxsa.SqlAlchemyLeasingLockManager:
         kwargs.setdefault("period", lock_period)
-        kwargs.setdefault("identifier", lock_id)
 
         return sxsa.SqlAlchemyLeasingLockManager(sa_db_engine, **kwargs)
 
@@ -185,8 +184,9 @@ async def sa_leasing_lock_manager_builder(
 @pytest.fixture
 async def sa_leasing_lock_manager(
     sa_leasing_lock_manager_builder: Callable[..., sxsa.SqlAlchemyLeasingLockManager],
-) -> sxsa.SqlAlchemyLeasingLockManager:
-    return sa_leasing_lock_manager_builder()
+) -> AsyncFixture[sxsa.SqlAlchemyLeasingLockManager]:
+    async with sa_leasing_lock_manager_builder() as lock_manager:
+        yield lock_manager
 
 
 @pytest.fixture

@@ -72,7 +72,7 @@ class Job(orm.MappedAsDataclass, BaseModel, kw_only=True):
     meta: orm.Mapped[bytes] = orm.mapped_column(sa.LargeBinary())
     # job next run time
     run_at: orm.Mapped[dt.datetime] = orm.mapped_column(UniversalDateTime(), index=True)
-    # identifier of the lock that acquired the job
+    # identifier of the locker that acquired the job
     acquired_by: orm.Mapped[Optional[str]] = orm.mapped_column(sa.String(36), default=None)
     # timestamp until the lock acquired the job
     acquired_until: orm.Mapped[Optional[dt.datetime]] = orm.mapped_column(UniversalDateTime(), index=True, default=None)
@@ -109,7 +109,7 @@ class Task(orm.MappedAsDataclass, BaseModel, kw_only=True):
     meta: orm.Mapped[bytes] = orm.mapped_column(sa.LargeBinary())
     # task run time
     run_at: orm.Mapped[dt.datetime] = orm.mapped_column(UniversalDateTime(), index=True)
-    # identifier of the lock that acquired the task
+    # identifier of the locker that acquired the task
     acquired_by: orm.Mapped[Optional[str]] = orm.mapped_column(sa.String(36), default=None)
     # timestamp until the lock acquired the task
     acquired_until: orm.Mapped[Optional[dt.datetime]] = orm.mapped_column(UniversalDateTime(), index=True, default=None)

@@ -3,7 +3,6 @@ import asyncio as aio
 import datetime as dt
 import logging
 import random as rnd
-import uuid
 from collections import deque
 from typing import Any, MutableMapping
 
@@ -83,7 +82,6 @@ async def start_executor() -> None:
     async with db_engine.begin() as conn:
         await conn.run_sync(sxsa.BaseModel.metadata.create_all)
 
-    worker_id = str(uuid.uuid4())
     app_state: AppState = {}
     executor = sx.WorkerPoolExecutor(
         max_workers=3,
@@ -95,7 +93,6 @@ async def start_executor() -> None:
         lock_manager=sxsa.SqlAlchemyLeasingLockManager(
             db_engine,
             period=dt.timedelta(seconds=15),
-            identifier=worker_id,
         ),
     )
 

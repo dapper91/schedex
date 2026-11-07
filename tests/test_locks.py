@@ -10,7 +10,7 @@ from pytest_lazy_fixtures import lf
 import schedex as sx
 from tests.conftest import StoredJobFactory
 from tests.factories import StoredTaskFactory
-from tests.types import BaseStorage
+from tests.types import AsyncFixture, BaseStorage
 
 
 @pytest.fixture(
@@ -68,10 +68,11 @@ def lock_manager_builder(
 
 
 @pytest.fixture
-def lock_manager(
+async def lock_manager(
     test_bundle: tuple[BaseStorage, BaseStorage, Callable[..., sx.LockManager[Any, Any]]],
-) -> sx.LockManager[Any, Any]:
-    return test_bundle[2]()
+) -> AsyncFixture[sx.LockManager[Any, Any]]:
+    async with test_bundle[2]() as lock_manager:
+        yield lock_manager
 
 
 class CustomException(Exception):
@@ -82,8 +83,9 @@ async def test_leasing_job_lock_manager_no_jobs(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is None
 
 
@@ -92,12 +94,13 @@ async def test_leasing_job_lock_manager_no_upcoming_jobs(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     stored_job = stored_job_factory.build(run_at=now + dt.timedelta(milliseconds=1))
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is None
 
 
@@ -106,6 +109,7 @@ async def test_leasing_job_lock_manager_job_order(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
 
@@ -118,7 +122,7 @@ async def test_leasing_job_lock_manager_job_order(
     for stored_job in stored_jobs:
         await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     assert lock.job.id == upcoming_job.id
 
@@ -130,12 +134,13 @@ async def test_leasing_job_lock_manager_job_status_filter(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
     status: sx.JobStatus,
 ) -> None:
     stored_job = stored_job_factory.build(status=status)
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is None
 
 
@@ -144,17 +149,17 @@ async def test_leasing_job_lock_release(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_job = stored_job_factory.build()
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await job_storage.assert_is_locked(
         dict(
             id=stored_job.id,
             created_at=stored_job.created_at,
-            status=stored_job.status,
             schedule=stored_job.schedule,
             count=stored_job.count,
             task_name=stored_job.task_name,
@@ -189,18 +194,18 @@ async def test_leasing_job_lock_context_manager_success(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_job = stored_job_factory.build()
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     async with lock:
         await job_storage.assert_is_locked(
             dict(
                 id=stored_job.id,
                 created_at=stored_job.created_at,
-                status=stored_job.status,
                 schedule=stored_job.schedule,
                 count=stored_job.count,
                 task_name=stored_job.task_name,
@@ -233,11 +238,12 @@ async def test_leasing_job_lock_context_manager_exception(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_job = stored_job_factory.build()
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     with pytest.raises(CustomException):
         async with lock:
@@ -266,11 +272,12 @@ async def test_leasing_job_lock_release_with_error(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_job = stored_job_factory.build()
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.release_with_error()
     await job_storage.assert_has_exactly(
@@ -295,11 +302,12 @@ async def test_leasing_job_lock_remove(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_job = stored_job_factory.build()
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.remove()
     await job_storage.assert_has_exactly({}, count=0)
@@ -309,11 +317,12 @@ async def test_leasing_job_lock_complete(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_job = stored_job_factory.build()
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.complete()
     await job_storage.assert_has_exactly(
@@ -342,6 +351,7 @@ async def test_leasing_job_lock_create_task(
     job_storage: BaseStorage,
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
     completed: bool,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
@@ -353,7 +363,7 @@ async def test_leasing_job_lock_create_task(
     stored_job = stored_job_factory.build(executor_tag="gpu")
     await job_storage.insert(dc.asdict(stored_job))
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.create_task(next_run_at=next_run_at)
     await lock.release()
@@ -418,13 +428,14 @@ async def test_leasing_job_lock_manager_event_on_release(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await job_storage.insert(dc.asdict(stored_job_factory.build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.release()
     event_sender_mock.send.assert_called_with(
@@ -441,13 +452,14 @@ async def test_leasing_job_lock_manager_event_on_remove(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await job_storage.insert(dc.asdict(stored_job_factory.build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.remove()
     event_sender_mock.send.assert_called_with(
@@ -464,13 +476,14 @@ async def test_leasing_job_lock_manager_event_on_complete(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await job_storage.insert(dc.asdict(stored_job_factory.build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.complete()
     event_sender_mock.send.assert_called_with(
@@ -487,13 +500,14 @@ async def test_leasing_job_lock_manager_event_on_error(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await job_storage.insert(dc.asdict(stored_job_factory.build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.release_with_error()
     event_sender_mock.send.assert_called_with(
@@ -511,6 +525,7 @@ async def test_leasing_job_lock_manager_event_on_create_task(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
     next_run_at: bool,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
@@ -519,7 +534,7 @@ async def test_leasing_job_lock_manager_event_on_create_task(
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_upcoming_job()
+    lock, delay = await lock_manager.lock_upcoming_job(lock_id)
     assert lock is not None
     await lock.create_task(now if next_run_at else None)
     await lock.release()
@@ -543,8 +558,11 @@ async def test_leasing_job_lock_manager_event_on_create_task(
     )
 
 
-async def test_leasing_task_lock_manager_no_tasks(lock_manager: sx.LockManager[Any, Any]) -> None:
-    lock, delay = await lock_manager.lock_next_task()
+async def test_leasing_task_lock_manager_no_tasks(
+    lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
+) -> None:
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is None
 
 
@@ -553,12 +571,13 @@ async def test_leasing_job_lock_manager_no_upcoming_tasks(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ):
     now = dt.datetime.now(dt.timezone.utc)
     stored_task = stored_task_factory.build(run_at=now + dt.timedelta(milliseconds=1))
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is None
 
 
@@ -568,6 +587,7 @@ async def test_leasing_task_lock_manager_task_order(
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
     status: sx.TaskStatus,
+    lock_id: str,
 ) -> None:
     if status == sx.TaskStatus.Pending:
         stored_task_factory = stored_task_factory.pending()
@@ -587,7 +607,7 @@ async def test_leasing_task_lock_manager_task_order(
     for stored_task in stored_tasks:
         await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     assert lock.task.id == upcoming_task.id
     await lock.release()
@@ -599,6 +619,7 @@ async def test_leasing_task_lock_manager_task_status_filter(
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
     status: sx.TaskStatus,
+    lock_id: str,
 ) -> None:
     if status == sx.TaskStatus.Succeeded:
         stored_task_factory = stored_task_factory.succeeded()
@@ -610,7 +631,7 @@ async def test_leasing_task_lock_manager_task_status_filter(
     stored_task = stored_task_factory.build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is None
 
 
@@ -619,17 +640,17 @@ async def test_leasing_task_lock_release(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
 
     await task_storage.assert_is_locked(
         dict(
             created_at=stored_task.created_at,
-            status=stored_task.status,
             sequence_number=stored_task.sequence_number,
             attempts=stored_task.attempts,
             task_name=stored_task.task_name,
@@ -663,17 +684,17 @@ async def test_leasing_task_lock_context_manager_success(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     async with lock:
         await task_storage.assert_is_locked(
             dict(
                 created_at=stored_task.created_at,
-                status=stored_task.status,
                 sequence_number=stored_task.sequence_number,
                 attempts=stored_task.attempts,
                 task_name=stored_task.task_name,
@@ -705,11 +726,12 @@ async def test_leasing_task_lock_context_manager_exception(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     with pytest.raises(CustomException):
         async with lock:
@@ -737,11 +759,12 @@ async def test_leasing_task_lock_release_with_status(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     await lock.release_with_error()
     await task_storage.assert_has_exactly(
@@ -766,11 +789,12 @@ async def test_leasing_task_lock_remove(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     await lock.remove()
     await task_storage.assert_has_exactly({}, 0)
@@ -781,13 +805,14 @@ async def test_leasing_task_lock_postpone(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
 
     stored_task = stored_task_factory.pending().build()
     await task_storage.insert(dc.asdict(stored_task))
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
     with pytest.raises(sx.BreakTask):
         await lock.postpone(delay=dt.timedelta(seconds=1))
@@ -815,13 +840,14 @@ async def test_leasing_task_lock_manager_event_on_release(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await task_storage.insert(dc.asdict(stored_task_factory.pending().build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
 
     await lock.release()
@@ -839,13 +865,14 @@ async def test_leasing_task_lock_manager_event_on_remove(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await task_storage.insert(dc.asdict(stored_task_factory.pending().build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
 
     await lock.remove()
@@ -863,13 +890,14 @@ async def test_leasing_task_lock_manager_event_on_error(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await task_storage.insert(dc.asdict(stored_task_factory.pending().build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
 
     await lock.release_with_error()
@@ -887,13 +915,14 @@ async def test_leasing_task_lock_manager_event_on_success(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
 ) -> None:
     await task_storage.insert(dc.asdict(stored_task_factory.pending().build()))
 
     event_sender_mock = mk.MagicMock(spec=sx.EventSender)
     lock_manager = lock_manager_builder(event_sender=event_sender_mock)
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     assert lock is not None
 
     await lock.succeed()
@@ -919,6 +948,7 @@ async def test_leasing_task_lock_manager_task_executor_tag_filter(
     stored_task_factory: type[StoredTaskFactory],
     task_storage: BaseStorage,
     lock_manager_builder: Callable[..., sx.LockManager[Any, Any]],
+    lock_id: str,
     executor_tags: Optional[list[str]],
     task_executor_tag: Optional[str],
     locked: bool,
@@ -928,7 +958,7 @@ async def test_leasing_task_lock_manager_task_executor_tag_filter(
 
     lock_manager = lock_manager_builder(executor_tags=executor_tags)
 
-    lock, delay = await lock_manager.lock_next_task()
+    lock, delay = await lock_manager.lock_next_task(lock_id)
     if lock is not None:
         await lock.release()
 

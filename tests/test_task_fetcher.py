@@ -56,6 +56,7 @@ async def test_task_fetcher_no_tasks(
     stored_job_factory: type[StoredJobFactory],
     job_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     fetcher = sx.TaskFetcher(
         polling_interval=dt.timedelta(seconds=1),
@@ -63,7 +64,7 @@ async def test_task_fetcher_no_tasks(
         schedule_type=sx.PeriodicSchedule,
     )
 
-    task, delay = await fetcher.fetch_next_task()
+    task, delay = await fetcher.fetch_next_task(lock_id)
     assert task is None
     assert delay == dt.timedelta.max
 
@@ -75,6 +76,7 @@ async def test_task_fetcher_no_pending_tasks(
     job_storage: BaseStorage,
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     stored_task = stored_task_factory.pending().build(run_at=now + dt.timedelta(milliseconds=1))
@@ -86,7 +88,7 @@ async def test_task_fetcher_no_pending_tasks(
         schedule_type=sx.PeriodicSchedule,
     )
 
-    task, delay = await fetcher.fetch_next_task()
+    task, delay = await fetcher.fetch_next_task(lock_id)
     assert task is None
     assert delay == dt.timedelta(milliseconds=1)
 
@@ -98,6 +100,7 @@ async def test_task_fetcher_no_pending_jobs(
     job_storage: BaseStorage,
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     stored_job = stored_job_factory.build(run_at=now + dt.timedelta(milliseconds=1))
@@ -109,7 +112,7 @@ async def test_task_fetcher_no_pending_jobs(
         schedule_type=sx.PeriodicSchedule,
     )
 
-    task, delay = await fetcher.fetch_next_task()
+    task, delay = await fetcher.fetch_next_task(lock_id)
     assert task is None
     assert delay == dt.timedelta(milliseconds=1)
 
@@ -121,6 +124,7 @@ async def test_task_fetcher_pending_task(
     job_storage: BaseStorage,
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     stored_task = stored_task_factory.pending().build(run_at=now)
@@ -132,7 +136,7 @@ async def test_task_fetcher_pending_task(
         schedule_type=sx.PeriodicSchedule,
     )
 
-    task, delay = await fetcher.fetch_next_task()
+    task, delay = await fetcher.fetch_next_task(lock_id)
     assert task is not None
     assert delay == dt.timedelta(0)
 
@@ -144,6 +148,7 @@ async def test_task_fetcher_pending_job(
     job_storage: BaseStorage,
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     schedule = sx.PeriodicSchedule.periodically(start_at=now, delay=dt.timedelta(minutes=1))
@@ -156,7 +161,7 @@ async def test_task_fetcher_pending_job(
         schedule_type=sx.PeriodicSchedule,
     )
 
-    task, delay = await fetcher.fetch_next_task()
+    task, delay = await fetcher.fetch_next_task(lock_id)
     assert task is None
     assert delay == dt.timedelta(0)
 
@@ -197,6 +202,7 @@ async def test_task_fetcher_pending_job_task_order(
     job_storage: BaseStorage,
     task_storage: BaseStorage,
     lock_manager: sx.LockManager[Any, Any],
+    lock_id: str,
     expected_first: str,
 ) -> None:
     now = dt.datetime.now(dt.timezone.utc)
@@ -218,6 +224,6 @@ async def test_task_fetcher_pending_job_task_order(
         schedule_type=sx.PeriodicSchedule,
     )
 
-    task, delay = await fetcher.fetch_next_task()
+    task, delay = await fetcher.fetch_next_task(lock_id)
     assert task is None
     assert delay == dt.timedelta(seconds=1)

@@ -71,7 +71,6 @@ async def pymongo_lock_manager_builder(
     lock_period: dt.timedelta,
 ) -> Callable[..., sxpm.PyMongoLeasingLockManager]:
     def builder(**kwargs: Any) -> sxpm.PyMongoLeasingLockManager:
-        kwargs.setdefault("identifier", lock_id)
         kwargs.setdefault("period", lock_period)
 
         return sxpm.PyMongoLeasingLockManager(pymongo_database_client, dbname=mongodb_dbname, **kwargs)
