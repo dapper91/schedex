@@ -112,6 +112,7 @@ class ErrorGuard:
         logger: Optional[log.Logger] = None,
         raise_last_errors: int = 1,
         stack_info: bool = False,
+        name: Optional[str] = None,
     ):
         self._retry_policy = retry_policy
         self._retry_on = retry_on
@@ -123,6 +124,7 @@ class ErrorGuard:
         self._last_exceptions = deque[BaseException](maxlen=raise_last_errors)
         self._stack_info = stack_info
         self._delay_gen: Optional[Generator[float, None, None]] = None
+        self._guard_name = name or "guard"
 
     def __enter__(self) -> Self:
         self.reset()
@@ -138,7 +140,9 @@ class ErrorGuard:
             if not self._last_exceptions:
                 return True
 
-            self._logger.error("last attempt failed: %s", self._last_exceptions[-1], stack_info=self._stack_info)
+            self._logger.error(
+                "%s last attempt failed: %s", self._guard_name, self._last_exceptions[-1], stack_info=self._stack_info
+            )
 
             if self._raise_last_errors == 0:
                 return True
@@ -160,7 +164,7 @@ class ErrorGuard:
         if self._delay_gen:
             try:
                 delay = next(self._delay_gen)
-                self._logger.warning("sleeping for %.2f seconds", delay)
+                self._logger.warning("%s sleeping for %.2f seconds", self._guard_name, delay)
                 await self._async_waiter(delay)
             except StopIteration:
                 raise GuardExhausted() from None
@@ -177,7 +181,7 @@ class ErrorGuard:
         if self._delay_gen:
             try:
                 delay = next(self._delay_gen)
-                self._logger.warning("sleeping for %.2f seconds", delay)
+                self._logger.warning("%s sleeping for %.2f seconds", self._guard_name, delay)
                 self._waiter(delay)
             except StopIteration:
                 raise GuardExhausted() from None
@@ -198,7 +202,7 @@ class ErrorGuard:
         if self._delay_gen is None:
             self._delay_gen = self._retry_policy()
 
-        self._logger.error("error occurred: %s", exc, stack_info=self._stack_info)
+        self._logger.error("%s caught an error: %s", self._guard_name, exc, stack_info=self._stack_info)
         self._last_exceptions.append(exc)
 
         return True
