@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.1 (2026-11-08)
+
+### Bug Fixes
+
+- Worker pool leak fixed.
+  ([`16cc5ba`](https://github.com/dapper91/schedex/commit/16cc5ba464225922d2ecf544abc716aede535b61))
+
+
 ## v0.4.0 (2026-11-07)
 
 ### Bug Fixes
