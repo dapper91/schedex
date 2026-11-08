@@ -181,7 +181,7 @@ class BufferedEventSender(EventSender):
         await self._wrapped.send(event)
 
     async def _send_buffered_events(self) -> None:
-        with ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+        with ErrorGuard(self._retry_policy, reset_on_success=True, name="event-sender") as guard:
             while ticket := await guard.acquire_async():
                 with ticket:
                     event = await self._buffer.get()

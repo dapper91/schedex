@@ -161,6 +161,7 @@ class WorkerPool(cl.AbstractAsyncContextManager["WorkerPool"]):
         """
 
         while not self._free_workers:
+            logger.debug("waiting for free workers ...")
             await self._worker_released_event.wait()
             self._worker_released_event.clear()
 
@@ -292,12 +293,12 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
     ) -> None:
         logger.info("task processor started")
 
-        with ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+        with ErrorGuard(self._retry_policy, reset_on_success=True, name="task-processor") as guard:
             async with self._worker_pool as worker_pool:
                 while ticket := await guard.acquire_async():
                     worker = await worker_pool.acquire()
-                    try:
-                        with ticket:
+                    with ticket:
+                        try:
                             task_lock, delay = await task_fetcher.fetch_next_task(worker.identifier)
                             if task_lock is not None:
                                 logger.debug("task '%s' locked", task_lock.task.id)
@@ -317,14 +318,14 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
 
                                 worker.release()
 
-                    except BaseException:
-                        worker.release()
-                        raise
+                        except BaseException:
+                            worker.release()
+                            raise
 
     async def _process_events(self, event_receiver: EventReceiver, task_status_changed: aio.Event) -> None:
         logger.info("event processor started")
 
-        with ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+        with ErrorGuard(self._retry_policy, reset_on_success=True, name="event-processor") as guard:
             while ticket := await guard.acquire_async():
                 with ticket:
                     async with event_receiver.connect() as event_source:
@@ -372,7 +373,7 @@ class WorkerPoolExecutor[StT, JlkT: JobLock, TlkT: TaskLock]:
         await task(context, *bound_task.args, **bound_task.kwargs)
 
     async def _cancel_task_on_lock_expired(self, task: aio.Task[None], lock: TlkT) -> None:
-        with ErrorGuard(self._retry_policy, reset_on_success=True) as guard:
+        with ErrorGuard(self._retry_policy, reset_on_success=True, name="task-canceler") as guard:
             while ticket := await guard.acquire_async():
                 with ticket:
                     await lock.wait_unlocked()
