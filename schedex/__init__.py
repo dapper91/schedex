@@ -18,7 +18,7 @@ from .lock import (
     LockManager,
     TaskLock,
 )
-from .schedule import CombinedSchedule, PeriodicSchedule, Schedule
+from .schedule import PeriodicSchedule, Schedule
 from .scheduler import (
     Job,
     JobData,
