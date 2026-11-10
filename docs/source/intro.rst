@@ -5,17 +5,17 @@ This section describes the core concepts and terminology used throughout the lib
 
 **Method**
 
-A method is a Python function that is executed by the library according to a predefined schedule.
+A method is a Python function that is executed by the library according to a defined schedule.
 
 **Task**
 
 A task is an object that represents a method along with additional metadata required for its execution,
-such as a task name and argument serialization format.
+such as a task name and argument serializer/deserializer.
 
 **Task Registry**
 
 A task registry is a collection of registered tasks available to the executor. It provides a way to discover and
-retrieve tasks by their identifiers or names.
+retrieve tasks by their identifiers.
 
 **Schedule**
 
@@ -33,13 +33,14 @@ A context is an object that provides information and resources associated with a
 - Execution information, such as the current execution attempt.
 - The task lock.
 - The application state.
+- The task metadata (trace id, trance baggage and so on).
 
 The context is made available during task execution and provides access to the information and resources required by the task.
 
 **State**
 
 A state is an object that holds application-specific data shared across task executions. It may contain resources and
-configuration such as database connections, application settings, and other application-level dependencies.
+configurations such as database connections, application settings, and other application-level dependencies.
 
 **Scheduler**
 
@@ -51,9 +52,13 @@ An executor is the runtime component responsible for monitoring scheduled jobs a
 
 **Lock**
 
-A lock is an object that prevents concurrent execution of the same task or job, ensuring that only one execution can hold the lock at a time.
+A lock is an object that prevents concurrent execution of the same task, ensuring that only one execution can hold the lock at a time.
 
 **Event**
 
 An event is an object that represents an action or occurrence within a scheduler instance or across the scheduler cluster.
 Events can be used to communicate changes, execution activity, and other significant occurrences.
+
+**Eventbus**
+
+An eventbus is an event transmission channel of many-to-many type that consists of multiple senders and multiple receivers.
