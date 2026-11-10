@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-11-10)
+
+### Documentation
+
+- Documentation completed.
+  ([`289e29c`](https://github.com/dapper91/schedex/commit/289e29cc9db023a44d71454a7519b662f08cc4f6))
+
+### Features
+
+- Combined schedule removed.
+  ([`8c04b43`](https://github.com/dapper91/schedex/commit/8c04b43c7d0132b880d040b7c889bb72d7c97c9f))
+
+- Job data extended.
+  ([`b54b1f8`](https://github.com/dapper91/schedex/commit/b54b1f810afa4a36617784a3a4692c35447808de))
+
+
 ## v0.4.1 (2026-11-08)
 
 ### Bug Fixes
