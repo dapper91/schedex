@@ -40,7 +40,6 @@ Schedule
 .. currentmodule:: schedex.schedule
 
 .. autoclass:: Schedule
-.. autoclass:: CombinedSchedule
 .. autoclass:: PeriodicSchedule
 
 

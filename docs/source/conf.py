@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path("..", "..").resolve()))
 project = "schedex"
 copyright = "2026, Dmitry Pershin"
 author = "Dmitry Pershin"
-release = "1.0.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -71,5 +70,5 @@ html_theme_options = {
         "color-link-underline": "transparent",
         "color-link-underline--hover": _link_color_dark,
     },
-    "sidebar_hide_name": True,
+    "sidebar_hide_name": False,
 }

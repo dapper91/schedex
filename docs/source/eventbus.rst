@@ -18,3 +18,11 @@ It provides an interface for subscribing to event streams and receiving notifica
 occurring within a scheduler instance or across the cluster. Event receivers allow applications to react
 to scheduler activity, implement custom monitoring and logging, trigger additional workflows,
 or integrate the library with external systems.
+
+.. important::
+    Event bus **doesn't guarantee event delivery** so that some of them may be lost
+    during network issues or node failures or restarts.
+
+The following example demonstrates an event bus implementation via PostgreSQL LISTEN / NOTIFY mechanism.
+
+.. literalinclude:: ../examples/sqlalchemy.py

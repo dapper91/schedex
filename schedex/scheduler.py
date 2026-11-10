@@ -26,14 +26,19 @@ class JobData[SchT: Schedule]:
     :param executor_tag: the tag of an executor the job will be executed on
     """
 
+    id: str
+    created_at: dt.datetime
+    status: JobStatus
     schedule: SchT
-    meta: Metadata = dc.field(default_factory=dict, kw_only=True)
-    id: str = dc.field(default_factory=lambda: str(uuid.uuid4()), kw_only=True)
-    executor_tag: Optional[str] = dc.field(default=None, kw_only=True)
+    task_name: str
+    run_at: dt.datetime
+    count: int
+    meta: Metadata
+    executor_tag: Optional[str]
 
 
 @dc.dataclass
-class Job[SchT: Schedule](JobData[SchT]):
+class Job[SchT: Schedule]:
     """
     Scheduler job.
 
@@ -44,7 +49,11 @@ class Job[SchT: Schedule](JobData[SchT]):
     :param executor_tag: the tag of an executor the job will be executed on
     """
 
+    schedule: SchT
     task: BoundTask
+    meta: Metadata = dc.field(default_factory=dict, kw_only=True)
+    id: str = dc.field(default_factory=lambda: str(uuid.uuid4()), kw_only=True)
+    executor_tag: Optional[str] = dc.field(default=None, kw_only=True)
 
 
 class SchedulerMiddlewareWrappedFunc[SchT: Schedule](Protocol):
@@ -157,7 +166,12 @@ class Scheduler[SchT: Schedule]:
         if (stored_job := await self._job_manager.get_job(job_id)) is not None:
             return JobData(
                 id=stored_job.id,
+                created_at=stored_job.created_at,
+                status=stored_job.status,
                 schedule=self._schedule_type.deserialize(stored_job.schedule),
+                task_name=stored_job.task_name,
+                run_at=stored_job.run_at,
+                count=stored_job.count,
                 meta=metadata_decoder.decode(stored_job.meta),
                 executor_tag=stored_job.executor_tag,
             )
