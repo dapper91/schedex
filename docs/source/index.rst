@@ -78,6 +78,7 @@ Quickstart
     :caption: Reference
 
     api.rst
+    development.rst
 
 
 .. _msgspec: https://msgspec.dev/
