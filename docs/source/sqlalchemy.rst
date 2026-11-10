@@ -17,3 +17,19 @@ However, you can implement event notifications using database-specific mechanism
 For example, PostgreSQL users can leverage LISTEN / NOTIFY through the psycopg extension to propagate events across scheduler instances.
 
 .. literalinclude:: ../examples/sqlalchemy.py
+
+
+Alembic
+_______
+
+To generate database migration automatically add `schedex.contrib.sqlalchemy.BaseModel.metadata`
+into alembic target metadata:
+
+.. code-block:: python
+
+    from schedex.contrib.sqlalchemy import BaseModel
+
+    target_metadata = [BaseModel.metadata]
+
+
+For more information `see <https://alembic.sqlalchemy.org/en/latest/autogenerate.html#autogenerating-multiple-metadata-collections>`_
